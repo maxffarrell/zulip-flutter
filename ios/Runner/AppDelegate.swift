@@ -1,3 +1,5 @@
+import UserNotifications
+import Intents
 import UIKit
 import Flutter
 
@@ -28,6 +30,22 @@ import Flutter
 
     UNUserNotificationCenter.current().delegate = self
 
+    // Register notification category with text input action for reply
+    let replyAction = UNTextInputNotificationAction(
+      identifier: "REPLY_ACTION",
+      title: "Reply",
+      options: [],
+      textInputButtonTitle: "Send",
+      textInputPlaceholder: "Type your reply..."
+    )
+    let messageCategory = UNNotificationCategory(
+      identifier: "MESSAGE_CATEGORY",
+      actions: [replyAction],
+      intentIdentifiers: [],
+      options: []
+    )
+    UNUserNotificationCenter.current().setNotificationCategories([messageCategory])
+
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
@@ -36,11 +54,35 @@ import Flutter
     didReceive response: UNNotificationResponse,
     withCompletionHandler completionHandler: @escaping () -> Void
   ) {
-    if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
-      let userInfo = response.notification.request.content.userInfo
-      notificationTapEventListener!.onNotificationTapEvent(payload: userInfo)
+  let userInfo = response.notification.request.content.userInfo
+  if response.actionIdentifier == "REPLY_ACTION" {
+    if let textResponse = response as? UNTextInputNotificationResponse {
+      let replyText = textResponse.userText
+      // Handle the reply text, e.g., send to server or Flutter
+      // You may want to pass this to Flutter via eventSink or method channel
+      notificationTapEventListener?.onNotificationTapEvent(payload: ["reply": replyText, "userInfo": userInfo])
     }
-    completionHandler()
+  } else if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+    notificationTapEventListener?.onNotificationTapEvent(payload: userInfo)
+  }
+  completionHandler()
+
+  // Example: Show sender's profile image using INSendMessageIntent (for rich notifications)
+  // This is typically done when creating the notification content, e.g., in a notification service extension.
+  // Here is a sample for reference:
+  /*
+  let intent = INSendMessageIntent(
+    recipients: [INPerson(personHandle: INPersonHandle(value: "sender@example.com", type: .emailAddress), nameComponents: nil, displayName: "Sender Name", image: INImage(url: URL(string: "https://example.com/profile.png")), contactIdentifier: nil, customIdentifier: nil, isMe: false, suggestionType: .none)],
+    outgoingMessageType: .outgoing,
+    content: "Message content",
+    speakableGroupName: nil,
+    conversationIdentifier: "conversation_id",
+    serviceName: nil,
+    sender: nil
+  )
+  let interaction = INInteraction(intent: intent, response: nil)
+  interaction.donate(completion: nil)
+  */
   }
 }
 
