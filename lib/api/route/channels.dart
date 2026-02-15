@@ -40,44 +40,59 @@ Future<void> unsubscribeFromChannel(ApiConnection connection, {
   });
 }
 
-/// https://zulip.com/api/get-stream-topics
-Future<GetStreamTopicsResult> getStreamTopics(ApiConnection connection, {
+/// https://zulip.com/api/update-subscription-settings
+Future<void> updateSubscriptionSettings(ApiConnection connection, {
   required int streamId,
+  required SubscriptionProperty property,
+  required Object value,
+}) {
+  return connection.post('updateSubscriptionSettings', (_) {}, 'users/me/subscriptions/properties', {
+    'subscription_data': [{
+      'stream_id': streamId,
+      'property': property,
+      'value': value,
+    }],
+  });
+}
+
+/// https://zulip.com/api/get-stream-topics
+Future<GetChannelTopicsResult> getChannelTopics(ApiConnection connection, {
+  required int channelId,
   required bool allowEmptyTopicName,
 }) {
   assert(allowEmptyTopicName, '`allowEmptyTopicName` should only be true');
-  return connection.get('getStreamTopics', GetStreamTopicsResult.fromJson, 'users/me/$streamId/topics', {
+  return connection.get('getChannelTopics', GetChannelTopicsResult.fromJson, 'users/me/$channelId/topics', {
     'allow_empty_topic_name': allowEmptyTopicName,
   });
 }
 
 @JsonSerializable(fieldRename: FieldRename.snake)
-class GetStreamTopicsResult {
-  final List<GetStreamTopicsEntry> topics;
+class GetChannelTopicsResult {
+  final List<GetChannelTopicsEntry> topics;
 
-  GetStreamTopicsResult({
+  GetChannelTopicsResult({
     required this.topics,
   });
 
-  factory GetStreamTopicsResult.fromJson(Map<String, dynamic> json) =>
-    _$GetStreamTopicsResultFromJson(json);
+  factory GetChannelTopicsResult.fromJson(Map<String, dynamic> json) =>
+    _$GetChannelTopicsResultFromJson(json);
 
-  Map<String, dynamic> toJson() => _$GetStreamTopicsResultToJson(this);
+  Map<String, dynamic> toJson() => _$GetChannelTopicsResultToJson(this);
 }
 
 @JsonSerializable(fieldRename: FieldRename.snake)
-class GetStreamTopicsEntry {
+class GetChannelTopicsEntry {
   final int maxId;
   final TopicName name;
 
-  GetStreamTopicsEntry({
+  GetChannelTopicsEntry({
     required this.maxId,
     required this.name,
   });
 
-  factory GetStreamTopicsEntry.fromJson(Map<String, dynamic> json) => _$GetStreamTopicsEntryFromJson(json);
+  factory GetChannelTopicsEntry.fromJson(Map<String, dynamic> json) => _$GetChannelTopicsEntryFromJson(json);
 
-  Map<String, dynamic> toJson() => _$GetStreamTopicsEntryToJson(this);
+  Map<String, dynamic> toJson() => _$GetChannelTopicsEntryToJson(this);
 }
 
 /// Update a topic's visibility policy.

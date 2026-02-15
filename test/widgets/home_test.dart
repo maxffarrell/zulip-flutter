@@ -1,7 +1,11 @@
+import 'dart:ui';
+
 import 'package:checks/checks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_checks/flutter_checks.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:zulip/api/model/events.dart';
+import 'package:zulip/api/model/model.dart';
 import 'package:zulip/model/actions.dart';
 import 'package:zulip/model/narrow.dart';
 import 'package:zulip/model/store.dart';
@@ -23,6 +27,8 @@ import '../flutter_checks.dart';
 import '../model/binding.dart';
 import '../model/store_checks.dart';
 import '../model/test_store.dart';
+import '../stdlib_checks.dart';
+import '../test_images.dart';
 import '../test_navigation.dart';
 import 'checks.dart';
 import 'test_app.dart';
@@ -82,6 +88,15 @@ void main () {
   }
 
   group('bottom nav navigation', () {
+    final findBottomNavSemantics = find.byWidgetPredicate((widget) {
+      if (widget is! Semantics) return false;
+      return widget.properties.role == SemanticsRole.tab;
+    });
+
+    // Finds a widget within the bottom navbar's semantics box subtree.
+    Finder findInBottomNav(Finder finder) =>
+      find.descendant(of: findBottomNavSemantics, matching: finder);
+
     testWidgets('preserve states when switching between views', (tester) async {
       await prepare(tester);
       await store.addUser(eg.otherUser);
@@ -125,6 +140,26 @@ void main () {
         matching: find.text('Channels'))).findsOne();
 
       await tester.tap(find.byIcon(ZulipIcons.two_person));
+      await tester.pump();
+      check(find.descendant(
+        of: find.byType(ZulipAppBar),
+        matching: find.text('Direct messages'))).findsOne();
+    });
+
+    testWidgets("view switches when labels are tapped", (tester) async {
+      await prepare(tester);
+
+      check(find.descendant(
+        of: find.byType(ZulipAppBar),
+        matching: find.text('Inbox'))).findsOne();
+
+      await tester.tap(findInBottomNav(find.text('Channels')));
+      await tester.pump();
+      check(find.descendant(
+        of: find.byType(ZulipAppBar),
+        matching: find.text('Channels'))).findsOne();
+
+      await tester.tap(findInBottomNav(find.text('Direct messages')));
       await tester.pump();
       check(find.descendant(
         of: find.byType(ZulipAppBar),
@@ -224,7 +259,27 @@ void main () {
         .isSameColorAs(designVariables.icon);
     }
 
+    testWidgets('buttons are 44px tall', (tester) async {
+      prepareBoringImageHttpClient();
+      await prepare(tester);
+
+      await tapOpenMenuAndAwait(tester);
+      checkIconSelected(tester, inboxMenuIconFinder);
+      checkIconNotSelected(tester, channelsMenuIconFinder);
+
+      final inboxElement = tester.element(
+        find.ancestor(of: inboxMenuIconFinder, matching: find.bySubtype<MenuButton>()));
+      check((inboxElement.renderObject as RenderBox)).size.height.equals(44);
+
+      final channelsElement = tester.element(
+        find.ancestor(of: inboxMenuIconFinder, matching: find.bySubtype<MenuButton>()));
+      check((channelsElement.renderObject as RenderBox)).size.height.equals(44);
+
+      debugNetworkImageHttpClientProvider = null;
+    });
+
     testWidgets('navigation states reflect on navigation bar menu buttons', (tester) async {
+      prepareBoringImageHttpClient();
       await prepare(tester);
 
       await tapOpenMenuAndAwait(tester);
@@ -238,9 +293,11 @@ void main () {
       await tapOpenMenuAndAwait(tester);
       checkIconNotSelected(tester, inboxMenuIconFinder);
       checkIconSelected(tester, channelsMenuIconFinder);
+      debugNetworkImageHttpClientProvider = null;
     });
 
     testWidgets('navigation bar menu buttons control navigation states', (tester) async {
+      prepareBoringImageHttpClient();
       await prepare(tester);
 
       await tapOpenMenuAndAwait(tester);
@@ -256,21 +313,27 @@ void main () {
       await tapOpenMenuAndAwait(tester);
       checkIconNotSelected(tester, inboxMenuIconFinder);
       checkIconSelected(tester, channelsMenuIconFinder);
+      debugNetworkImageHttpClientProvider = null;
     });
 
     testWidgets('navigation bar menu buttons dismiss the menu', (tester) async {
+      prepareBoringImageHttpClient();
       await prepare(tester);
       await tapOpenMenuAndAwait(tester);
       await tapButtonAndAwaitTransition(tester, channelsMenuIconFinder);
+      debugNetworkImageHttpClientProvider = null;
     });
 
     testWidgets('close button dismisses the menu', (tester) async {
+      prepareBoringImageHttpClient();
       await prepare(tester);
       await tapOpenMenuAndAwait(tester);
       await tapButtonAndAwaitTransition(tester, find.text('Close'));
+      debugNetworkImageHttpClientProvider = null;
     });
 
     testWidgets('menu buttons dismiss the menu', (tester) async {
+      prepareBoringImageHttpClient();
       addTearDown(testBinding.reset);
       topRoute = null;
       previousTopRoute = null;
@@ -297,21 +360,63 @@ void main () {
       await tester.pump((topBeforePop as TransitionRoute).reverseTransitionDuration);
 
       check(find.byType(BottomSheet)).findsNothing();
+      debugNetworkImageHttpClientProvider = null;
+    });
+
+    testWidgets('_MainMenuHeader', (tester) async {
+      prepareBoringImageHttpClient();
+      await prepare(tester);
+      await tapOpenMenuAndAwait(tester);
+      await tapButtonAndAwaitTransition(tester, find.byIcon(ZulipIcons.arrow_left_right));
+      check(find.byType(ChooseAccountPage)).findsOne();
+      debugNetworkImageHttpClientProvider = null;
+    });
+
+    testWidgets('_StarredMessagesButton', (tester) async {
+      prepareBoringImageHttpClient();
+
+      final findButton = find.byWidgetPredicate((widget) =>
+        widget is MenuButton && widget.icon == ZulipIcons.star);
+
+      await prepare(tester);
+      final message = eg.streamMessage();
+      await store.addMessage(message);
+      await store.handleEvent(UpdateMessageFlagsAddEvent(
+        id: 1, flag: MessageFlag.starred, messages: [message.id], all: false));
+
+      await tapOpenMenuAndAwait(tester);
+      check(find.descendant(of: findButton, matching: find.text('1'))).findsOne();
+
+      connection.prepare(json: eg.newestGetMessagesResult(
+        foundOldest: true,
+        messages: [
+          Message.fromJson((deepToJson(message) as Map<String, dynamic>)
+                              ..['flags'] = ['starred'])
+        ]).toJson());
+      await tapButtonAndAwaitTransition(tester, findButton);
+      check(find.byType(MessageListPage)).findsOne();
+      check(find.text('Starred messages')).findsOne();
+      debugNetworkImageHttpClientProvider = null;
     });
 
     testWidgets('_MyProfileButton', (tester) async {
+      prepareBoringImageHttpClient();
       await prepare(tester);
       await tapOpenMenuAndAwait(tester);
       await tapButtonAndAwaitTransition(tester, find.text('My profile'));
       check(find.byType(ProfilePage)).findsOne();
       check(find.text(eg.selfUser.fullName)).findsAny();
+      debugNetworkImageHttpClientProvider = null;
     });
 
     testWidgets('_AboutZulipButton', (tester) async {
+      prepareBoringImageHttpClient();
       await prepare(tester);
       await tapOpenMenuAndAwait(tester);
+      await tester.ensureVisible(find.byIcon(ZulipIcons.info));
       await tapButtonAndAwaitTransition(tester, find.byIcon(ZulipIcons.info));
       check(find.byType(AboutZulipPage)).findsOne();
+      debugNetworkImageHttpClientProvider = null;
     });
   });
 
@@ -333,8 +438,9 @@ void main () {
       pushedRoutes = [];
       lastPoppedRoute = null;
       await testBinding.globalStore.add(eg.selfAccount, eg.initialSnapshot());
-      await testBinding.globalStore.add(eg.otherAccount, eg.initialSnapshot(
-        realmUsers: [eg.otherUser]));
+      await testBinding.globalStore.add(
+        eg.otherAccount, eg.initialSnapshot(realmUsers: [eg.otherUser]),
+        markLastVisited: false);
       await tester.pumpWidget(ZulipApp(navigatorObservers: [testNavObserver]));
       await tester.pump(Duration.zero); // wait for the loading page
       checkOnLoadingPage();

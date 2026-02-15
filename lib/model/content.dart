@@ -5,6 +5,7 @@ import 'package:html/parser.dart';
 
 import '../api/model/model.dart';
 import '../api/model/submessage.dart';
+import '../widgets/image.dart';
 import 'code_block.dart';
 import 'katex.dart';
 
@@ -524,76 +525,224 @@ class MathBlockNode extends MathNode implements BlockContentNode {
   });
 }
 
-class ImageNodeList extends BlockContentNode {
-  const ImageNodeList(this.images, {super.debugHtmlNode});
+class ImagePreviewNodeList extends BlockContentNode {
+  const ImagePreviewNodeList(this.imagePreviews, {super.debugHtmlNode});
 
-  final List<ImageNode> images;
+  final List<ImagePreviewNode> imagePreviews;
 
   @override
   List<DiagnosticsNode> debugDescribeChildren() {
-    return images.map((node) => node.toDiagnosticsNode()).toList();
+    return imagePreviews.map((node) => node.toDiagnosticsNode()).toList();
   }
 }
 
-class ImageNode extends BlockContentNode {
+sealed class ImageNode extends ContentNode {
   const ImageNode({
     super.debugHtmlNode,
-    required this.srcUrl,
-    required this.thumbnailUrl,
     required this.loading,
+    required this.alt,
+    required this.src,
+    required this.originalSrc,
     required this.originalWidth,
     required this.originalHeight,
   });
+
+  /// Whether the img has the "image-loading-placeholder" classname.
+  ///
+  /// This is expected to be true (as of 2026-01)
+  /// while an uploaded image is being thumbnailed.
+  ///
+  /// When this is true, [src] will point to a "spinner" image.
+  /// Clients are invited to show a custom loading indicator instead; we do.
+  final bool loading;
+
+  final String? alt;
+
+  /// A URL for the image intended to be shown here in Zulip content.
+  ///
+  /// If [loading] is true, this will point to a "spinner" image.
+  /// Clients are invited to show a custom loading indicator instead; we do.
+  ///
+  /// Except for images processed in modern thumbnailing (as of 2026-01),
+  /// this is also meant for viewing the image by itself, in a lightbox.
+  /// For how to recognize that case, see [originalSrc].
+  final ImageNodeSrc src;
 
   /// The canonical source URL of the image.
   ///
   /// This may be a relative URL string. It also may not work without adding
   /// authentication credentials to the request.
-  final String srcUrl;
-
-  /// The thumbnail URL of the image.
   ///
-  /// This may be a relative URL string. It also may not work without adding
-  /// authentication credentials to the request.
+  /// Clients are expected to use this URL when saving the image to the device.
   ///
-  /// This will be null if the server hasn't yet generated a thumbnail,
-  /// or is a version that doesn't offer thumbnails.
-  /// It will also be null when [loading] is true.
-  final String? thumbnailUrl;
-
-  /// A flag to indicate whether to show the placeholder.
+  /// For images processed in modern thumbnailing (as of 2026-01),
+  /// this is also meant for viewing the image by itself, in a lightbox
+  /// (but if `data-transcoded-image` is present, it's better to use that [1]).
+  /// The modern-thumbnailing case is recognized when [loading] is true
+  /// or when [src] is an [ImageNodeSrcThumbnail].
+  /// From discussion:
+  ///   https://chat.zulip.org/#narrow/channel/412-api-documentation/topic/documenting.20inline.20images/near/2279483
   ///
-  /// Typically it will be `true` while Server is generating thumbnails.
-  final bool loading;
+  /// [1] The "transcoded image" feature is meant to keep the lightbox working
+  ///     when the original image is in an uncommon format, like TIFF.
+  ///     This isn't implemented yet; it's #1268.
+  // TODO(#1268) implement transcoded-image feature; update dartdoc
+  final String? originalSrc;
 
-  /// The width of the canonical image.
+  /// The width part of data-original-dimensions, if that attribute is present.
   final double? originalWidth;
 
-  /// The height of the canonical image.
+  /// The height part of data-original-dimensions, if that attribute is present.
   final double? originalHeight;
 
   @override
   bool operator ==(Object other) {
     return other is ImageNode
-      && other.srcUrl == srcUrl
-      && other.thumbnailUrl == thumbnailUrl
       && other.loading == loading
+      && other.alt == alt
+      && other.src == src
+      && other.originalSrc == originalSrc
       && other.originalWidth == originalWidth
       && other.originalHeight == originalHeight;
   }
 
   @override
   int get hashCode => Object.hash('ImageNode',
-    srcUrl, thumbnailUrl, loading, originalWidth, originalHeight);
+    loading,
+    alt,
+    src,
+    originalSrc,
+    originalWidth,
+    originalHeight);
 
   @override
   void debugFillProperties(DiagnosticPropertiesBuilder properties) {
     super.debugFillProperties(properties);
-    properties.add(StringProperty('srcUrl', srcUrl));
-    properties.add(StringProperty('thumbnailUrl', thumbnailUrl));
     properties.add(FlagProperty('loading', value: loading, ifTrue: "is loading"));
+    properties.add(StringProperty('alt', alt));
+    properties.add(DiagnosticsProperty<ImageNodeSrc>('src', src));
+    properties.add(StringProperty('originalSrc', originalSrc));
     properties.add(DoubleProperty('originalWidth', originalWidth));
     properties.add(DoubleProperty('originalHeight', originalHeight));
+  }
+}
+
+class ImagePreviewNode extends ImageNode implements BlockContentNode {
+  const ImagePreviewNode({
+    super.debugHtmlNode,
+    required super.loading,
+    required super.src,
+    required super.originalSrc,
+    required super.originalWidth,
+    required super.originalHeight,
+  }) : super(alt: null);
+
+  @override
+  bool operator ==(Object other) {
+    return other is ImagePreviewNode
+      && super == other;
+  }
+
+  @override
+  int get hashCode => Object.hash('ImagePreviewNode', super.hashCode);
+}
+
+/// A value of [ImagePreviewNode.src].
+sealed class ImageNodeSrc extends DiagnosticableTree {
+  const ImageNodeSrc();
+}
+
+/// A thumbnail URL, starting with [ImageThumbnailLocator.srcPrefix].
+class ImageNodeSrcThumbnail extends ImageNodeSrc {
+  const ImageNodeSrcThumbnail(this.value);
+
+  final ImageThumbnailLocator value;
+
+  @override
+  bool operator ==(Object other) {
+    return other is ImageNodeSrcThumbnail && other.value == value;
+  }
+
+  @override
+  int get hashCode => Object.hash('ImageNodeSrcThumbnail', value);
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(DiagnosticsProperty<ImageThumbnailLocator>('value', value));
+  }
+}
+
+/// A `src` that does not start with [ImageThumbnailLocator.srcPrefix].
+///
+/// This may be a relative URL string. It also may not work without adding
+/// authentication credentials to the request.
+// In 2026-01, this class covers these known cases:
+// - This may be a hard-coded "spinner" image,
+//   when thumbnailing of an uploaded image is in progress.
+// - This may match `href`, e.g. from pre-thumbnailing servers.
+// - This may start with CAMO_URI, a server variable (e.g. on Zulip Cloud
+//   it's "https://uploads.zulipusercontent.net/" in 2025-10).
+class ImageNodeSrcOther extends ImageNodeSrc {
+  const ImageNodeSrcOther(this.value);
+
+  final String value;
+
+  @override
+  bool operator ==(Object other) {
+    return other is ImageNodeSrcOther && other.value == value;
+  }
+
+  @override
+  int get hashCode => Object.hash('ImageNodeSrcOther', value);
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(StringProperty('value', value));
+  }
+}
+
+/// Data to locate an image thumbnail,
+/// and whether the image has an animated version.
+///
+/// Use [ImageThumbnailLocatorExtension.resolve] to obtain a suitable URL
+/// for the current UI need.
+@immutable
+class ImageThumbnailLocator extends DiagnosticableTree {
+  ImageThumbnailLocator({
+    required this.defaultFormatSrc,
+    required this.animated,
+  }) : assert(!defaultFormatSrc.hasScheme
+           && !defaultFormatSrc.hasAuthority
+           && defaultFormatSrc.path.startsWith(srcPrefix));
+
+  /// A relative URL for the default format, starting with [srcPrefix].
+  ///
+  /// It may not work without adding authentication credentials to the request.
+  final Uri defaultFormatSrc;
+
+  final bool animated;
+
+  static const srcPrefix = '/user_uploads/thumbnail/';
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! ImageThumbnailLocator) return false;
+    return defaultFormatSrc == other.defaultFormatSrc
+      && animated == other.animated;
+  }
+
+  @override
+  int get hashCode => Object.hash('ImageThumbnailLocator', defaultFormatSrc, animated);
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(StringProperty('defaultFormatSrc', defaultFormatSrc.toString()));
+    properties.add(FlagProperty('animated', value: animated,
+      ifTrue: 'animated',
+      ifFalse: 'not animated'));
   }
 }
 
@@ -928,15 +1077,30 @@ class UserMentionNode extends InlineContainerNode {
   const UserMentionNode({
     super.debugHtmlNode,
     required super.nodes,
+    required this.userId,
+    required this.isSilent,
   });
+
+  /// The ID of the user being mentioned.
+  ///
+  /// This is null for wildcard mentions, user group mentions,
+  /// or when the user ID is unavailable in the HTML (e.g., legacy mentions).
+  final int? userId;
+
+  final bool isSilent; // TODO(#647)
 
   // For the legacy design, we don't need this information in code; instead,
   // the inner text already shows how to communicate it to the user
-  // (e.g., silent mentions' text lacks a leading "@"),
   // and we show that text in the same style for all types of @-mention.
   // We'll need these for implementing the post-2023 Zulip design, though.
   //   final UserMentionType mentionType; // TODO(#646)
-  //   final bool isSilent; // TODO(#647)
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(IntProperty('userId', userId));
+    properties.add(FlagProperty('isSilent', value: isSilent, ifTrue: "is silent"));
+  }
 }
 
 sealed class EmojiNode extends InlineContentNode {
@@ -985,6 +1149,41 @@ class ImageEmojiNode extends EmojiNode {
   }
 }
 
+/// An "inline image" / "Markdown-style image" node,
+/// from the ![alt text](url) syntax.
+///
+/// See `api_docs/message-formatting.md` in the web PR for this feature:
+///   https://github.com/zulip/zulip/pull/36226
+///
+/// This class accommodates forms not expected from servers in 2026-01,
+/// to avoid being a landmine for possible future servers that send such forms.
+/// Notably, in 2026-01, servers are expected to produce this content
+/// just for uploaded images, which means the images' dimensions are available.
+/// UI code should nevertheless do something reasonable when the dimensions
+/// are not available. Discussion:
+///   https://chat.zulip.org/#narrow/channel/378-api-design/topic/HTML.20pattern.20for.20truly.20inline.20images/near/2348085
+// TODO: Link to the merged API doc when it lands.
+class InlineImageNode extends ImageNode implements InlineContentNode {
+  const InlineImageNode({
+    super.debugHtmlNode,
+    required super.loading,
+    required super.alt,
+    required super.src,
+    required super.originalSrc,
+    required super.originalWidth,
+    required super.originalHeight,
+  });
+
+  @override
+  bool operator ==(Object other) {
+    return other is InlineImageNode
+      && super == other;
+  }
+
+  @override
+  int get hashCode => Object.hash('InlineImageNode', super.hashCode);
+}
+
 class MathInlineNode extends MathNode implements InlineContentNode {
   const MathInlineNode({
     super.debugHtmlNode,
@@ -1016,6 +1215,39 @@ class GlobalTimeNode extends InlineContentNode {
   }
 }
 
+ImageNodeSrc? _tryParseImgSrc(dom.Element imgElement) {
+  final src = imgElement.attributes['src'];
+  if (src == null) return null;
+
+  if (src.startsWith(ImageThumbnailLocator.srcPrefix)) {
+    // For why we recognize this as the thumbnail form, see discussion:
+    //   https://chat.zulip.org/#narrow/channel/412-api-documentation/topic/documenting.20inline.20images/near/2279872
+    final srcUrl = Uri.tryParse(src);
+    if (srcUrl == null) return null;
+    final animated = imgElement.attributes['data-animated'] == 'true';
+    return ImageNodeSrcThumbnail(ImageThumbnailLocator(
+      defaultFormatSrc: srcUrl,
+      animated: animated));
+  }
+
+  return ImageNodeSrcOther(src);
+}
+
+final _imageDimensionsRegExp = RegExp(r'^(\d+)x(\d+)$');
+
+/// Parse an `img`'s `data-original-dimensions` attribute,
+/// which servers encode as "{width}x{height}" (e.g., "300x400").
+({double originalWidth, double originalHeight})? _tryParseOriginalDimensions(dom.Element imgElement) {
+  final attribute = imgElement.attributes['data-original-dimensions'];
+  if (attribute == null) return null;
+  final match = _imageDimensionsRegExp.firstMatch(attribute);
+  if (match == null) return null;
+  final width = int.tryParse(match.group(1)!, radix: 10);
+  final height = int.tryParse(match.group(2)!, radix: 10);
+  if (width == null || height == null) return null;
+  return (originalWidth: width.toDouble(), originalHeight: height.toDouble());
+}
+
 //|//////////////////////////////////////////////////////////////
 
 /// Parser for the inline-content subtrees within Zulip content HTML.
@@ -1026,6 +1258,28 @@ class GlobalTimeNode extends InlineContentNode {
 /// instance has been reset to its starting state, and can be re-used for
 /// parsing other subtrees.
 class _ZulipInlineContentParser {
+  InlineContentNode? parseInlineImage(dom.Element imgElement, {required bool loading}) {
+    assert(imgElement.localName == 'img');
+    assert(imgElement.className.contains('inline-image'));
+    assert(loading == imgElement.className.contains('image-loading-placeholder'));
+
+    final src = _tryParseImgSrc(imgElement);
+    if (src == null) return null;
+    final originalSrc = imgElement.attributes['data-original-src'];
+    final originalDimensions = _tryParseOriginalDimensions(imgElement);
+
+    final alt = imgElement.attributes['alt'];
+
+    return InlineImageNode(
+      loading: loading,
+      src: src,
+      alt: alt,
+      originalSrc: originalSrc,
+      originalWidth: originalDimensions?.originalWidth,
+      originalHeight: originalDimensions?.originalHeight,
+    );
+  }
+
   InlineContentNode? parseInlineMath(dom.Element element) {
     final debugHtmlNode = kDebugMode ? element : null;
     final parsed = parseMath(element, block: false);
@@ -1057,8 +1311,10 @@ class _ZulipInlineContentParser {
     }
 
     if (i >= classes.length) return null;
+    bool isSilent = false;
     if (classes[i] == 'silent') {
-      // A silent @-mention.  We ignore this flag; see [UserMentionNode].
+      // A silent @-mention.
+      isSilent = true;
       i++;
     }
 
@@ -1079,11 +1335,21 @@ class _ZulipInlineContentParser {
       return null;
     }
 
+    final userId = switch (element.attributes['data-user-id']) {
+      // For legacy, user group or wildcard mentions.
+      null || '*' => null,
+      final userIdString => int.tryParse(userIdString),
+    };
+
     // TODO assert UserMentionNode can't contain LinkNode;
     //   either a debug-mode check, or perhaps we can make expectations much
     //   tighter on a UserMentionNode's contents overall.
     final nodes = parseInlineContentList(element.nodes);
-    return UserMentionNode(nodes: nodes, debugHtmlNode: debugHtmlNode);
+    return UserMentionNode(
+      nodes: nodes,
+      userId: userId,
+      isSilent: isSilent,
+      debugHtmlNode: debugHtmlNode);
   }
 
   /// The links found so far in the current block inline container.
@@ -1169,12 +1435,23 @@ class _ZulipInlineContentParser {
       return UnicodeEmojiNode(emojiUnicode: unicode, debugHtmlNode: debugHtmlNode);
     }
 
-    if (localName == 'img' && className == 'emoji') {
-      final alt = element.attributes['alt'];
-      if (alt == null) return unimplemented();
-      final src = element.attributes['src'];
-      if (src == null) return unimplemented();
-      return ImageEmojiNode(src: src, alt: alt, debugHtmlNode: debugHtmlNode);
+    if (localName == 'img') {
+      if (className == 'emoji') {
+        final alt = element.attributes['alt'];
+        if (alt == null) return unimplemented();
+        final src = element.attributes['src'];
+        if (src == null) return unimplemented();
+        return ImageEmojiNode(src: src, alt: alt, debugHtmlNode: debugHtmlNode);
+      }
+
+      if (className == 'inline-image') {
+        return parseInlineImage(element, loading: false) ?? unimplemented();
+      } else if (
+        className == 'inline-image image-loading-placeholder'
+        || className == 'image-loading-placeholder inline-image'
+      ) {
+        return parseInlineImage(element, loading: true) ?? unimplemented();
+      }
     }
 
     if (localName == 'time' && className.isEmpty) {
@@ -1366,9 +1643,7 @@ class _ZulipContentParser {
     return CodeBlockNode(spans, debugHtmlNode: debugHtmlNode);
   }
 
-  static final _imageDimensionsRegExp = RegExp(r'^(\d+)x(\d+)$');
-
-  BlockContentNode parseImageNode(dom.Element divElement) {
+  BlockContentNode? parseImagePreviewNode(dom.Element divElement) {
     final elements = () {
       assert(divElement.localName == 'div'
           && divElement.className == 'message_inline_image');
@@ -1387,70 +1662,21 @@ class _ZulipContentParser {
     }();
 
     final debugHtmlNode = kDebugMode ? divElement : null;
-    if (elements == null) {
-      return UnimplementedBlockContentNode(htmlNode: divElement);
-    }
+    if (elements == null) return null;
 
     final (linkElement, imgElement) = elements;
-    final href = linkElement.attributes['href'];
-    if (href == null) {
-      return UnimplementedBlockContentNode(htmlNode: divElement);
-    }
-    if (imgElement.className == 'image-loading-placeholder') {
-      return ImageNode(
-        srcUrl: href,
-        thumbnailUrl: null,
-        loading: true,
-        originalWidth: null,
-        originalHeight: null,
-        debugHtmlNode: debugHtmlNode);
-    }
-    final src = imgElement.attributes['src'];
-    if (src == null) {
-      return UnimplementedBlockContentNode(htmlNode: divElement);
-    }
+    final loading = imgElement.className == 'image-loading-placeholder';
+    final src = _tryParseImgSrc(imgElement);
+    if (src == null) return null;
+    final originalSrc = linkElement.attributes['href'];
+    final originalDimensions = _tryParseOriginalDimensions(imgElement);
 
-    final String srcUrl;
-    final String? thumbnailUrl;
-    if (src.startsWith('/user_uploads/thumbnail/')) {
-      srcUrl = href;
-      thumbnailUrl = src;
-    } else if (src.startsWith('/external_content/')
-        || src.startsWith('https://uploads.zulipusercontent.net/')) {
-      srcUrl = src;
-      thumbnailUrl = null;
-    } else if (href == src)  {
-      srcUrl = src;
-      thumbnailUrl = null;
-    } else {
-      return UnimplementedBlockContentNode(htmlNode: divElement);
-    }
-
-    double? originalWidth, originalHeight;
-    final originalDimensions = imgElement.attributes['data-original-dimensions'];
-    if (originalDimensions != null) {
-      // Server encodes this string as "{width}x{height}" (eg. "300x400")
-      final match = _imageDimensionsRegExp.firstMatch(originalDimensions);
-      if (match != null) {
-        final width = int.tryParse(match.group(1)!, radix: 10);
-        final height = int.tryParse(match.group(2)!, radix: 10);
-        if (width != null && height != null) {
-          originalWidth = width.toDouble();
-          originalHeight = height.toDouble();
-        }
-      }
-
-      if (originalWidth == null || originalHeight == null) {
-        return UnimplementedBlockContentNode(htmlNode: divElement);
-      }
-    }
-
-    return ImageNode(
-      srcUrl: srcUrl,
-      thumbnailUrl: thumbnailUrl,
-      loading: false,
-      originalWidth: originalWidth,
-      originalHeight: originalHeight,
+    return ImagePreviewNode(
+      loading: loading,
+      src: src,
+      originalSrc: originalSrc,
+      originalWidth: originalDimensions?.originalWidth,
+      originalHeight: originalDimensions?.originalHeight,
       debugHtmlNode: debugHtmlNode);
   }
 
@@ -1870,7 +2096,8 @@ class _ZulipContentParser {
     }
 
     if (localName == 'div' && className == 'message_inline_image') {
-      return parseImageNode(element);
+      return parseImagePreviewNode(element)
+        ?? UnimplementedBlockContentNode(htmlNode: element);
     }
 
     if (localName == 'div') {
@@ -1923,10 +2150,10 @@ class _ZulipContentParser {
   List<BlockContentNode> parseImplicitParagraphBlockContentList(dom.NodeList nodes) {
     final List<BlockContentNode> result = [];
 
-    List<ImageNode> imageNodes = [];
-    void consumeImageNodes() {
-      result.add(ImageNodeList(imageNodes));
-      imageNodes = [];
+    List<ImagePreviewNode> imagePreviewNodes = [];
+    void consumeImagePreviewNodes() {
+      result.add(ImagePreviewNodeList(imagePreviewNodes));
+      imagePreviewNodes = [];
     }
 
     final List<dom.Node> currentParagraph = [];
@@ -1948,14 +2175,14 @@ class _ZulipContentParser {
       if (node case dom.Element(localName: 'p', className: '', nodes: [
             dom.Element(localName: 'span', className: 'katex-display'), ...])) {
         if (currentParagraph.isNotEmpty) consumeParagraph();
-        if (imageNodes.isNotEmpty) consumeImageNodes();
+        if (imagePreviewNodes.isNotEmpty) consumeImagePreviewNodes();
         parseMathBlocks(node.nodes, result);
         continue;
       }
 
       if (_isPossibleInlineNode(node)) {
-        if (imageNodes.isNotEmpty) {
-          consumeImageNodes();
+        if (imagePreviewNodes.isNotEmpty) {
+          consumeImagePreviewNodes();
           // In a context where paragraphs are implicit it should be impossible
           // to have more paragraph content after image previews.
           result.add(UnimplementedBlockContentNode(htmlNode: node));
@@ -1966,15 +2193,15 @@ class _ZulipContentParser {
       }
       if (currentParagraph.isNotEmpty) consumeParagraph();
       final block = parseBlockContent(node);
-      if (block is ImageNode) {
-        imageNodes.add(block);
+      if (block is ImagePreviewNode) {
+        imagePreviewNodes.add(block);
         continue;
       }
-      if (imageNodes.isNotEmpty) consumeImageNodes();
+      if (imagePreviewNodes.isNotEmpty) consumeImagePreviewNodes();
       result.add(block);
     }
     if (currentParagraph.isNotEmpty) consumeParagraph();
-    if (imageNodes.isNotEmpty) consumeImageNodes();
+    if (imagePreviewNodes.isNotEmpty) consumeImagePreviewNodes();
     return result;
   }
 
@@ -1983,10 +2210,10 @@ class _ZulipContentParser {
   List<BlockContentNode> parseBlockContentList(dom.NodeList nodes) {
     final List<BlockContentNode> result = [];
 
-    List<ImageNode> imageNodes = [];
-    void consumeImageNodes() {
-      result.add(ImageNodeList(imageNodes));
-      imageNodes = [];
+    List<ImagePreviewNode> imagePreviewNodes = [];
+    void consumeImagePreviewNodes() {
+      result.add(ImagePreviewNodeList(imagePreviewNodes));
+      imagePreviewNodes = [];
     }
 
     for (final node in nodes) {
@@ -2001,20 +2228,20 @@ class _ZulipContentParser {
       // handle it explicitly here.
       if (node case dom.Element(localName: 'p', className: '', nodes: [
             dom.Element(localName: 'span', className: 'katex-display'), ...])) {
-        if (imageNodes.isNotEmpty) consumeImageNodes();
+        if (imagePreviewNodes.isNotEmpty) consumeImagePreviewNodes();
         parseMathBlocks(node.nodes, result);
         continue;
       }
 
       final block = parseBlockContent(node);
-      if (block is ImageNode) {
-        imageNodes.add(block);
+      if (block is ImagePreviewNode) {
+        imagePreviewNodes.add(block);
         continue;
       }
-      if (imageNodes.isNotEmpty) consumeImageNodes();
+      if (imagePreviewNodes.isNotEmpty) consumeImagePreviewNodes();
       result.add(block);
     }
-    if (imageNodes.isNotEmpty) consumeImageNodes();
+    if (imagePreviewNodes.isNotEmpty) consumeImagePreviewNodes();
     return result;
   }
 

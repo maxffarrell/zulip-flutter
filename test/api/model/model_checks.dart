@@ -53,6 +53,25 @@ extension SavedSnippetChecks on Subject<SavedSnippet> {
 }
 
 extension ZulipStreamChecks on Subject<ZulipStream> {
+  Subject<int> get streamId => has((x) => x.streamId, 'streamId');
+
+  Subject<bool> get inviteOnly => has((x) => x.inviteOnly, 'inviteOnly');
+  Subject<bool> get isWebPublic => has((x) => x.isWebPublic, 'isWebPublic');
+}
+
+extension SubscriptionChecks on Subject<Subscription> {
+  Subject<bool> get pinToTop => has((x) => x.pinToTop, 'pinToTop');
+}
+
+extension ChannelFolderChecks on Subject<ChannelFolder> {
+  Subject<int> get id => has((x) => x.id, 'id');
+  Subject<String> get name => has((x) => x.name, 'name');
+  Subject<int?> get order => has((x) => x.order, 'order');
+  Subject<int?> get dateCreated => has((x) => x.dateCreated, 'dateCreated');
+  Subject<int?> get creatorId => has((x) => x.creatorId, 'creatorId');
+  Subject<String> get description => has((x) => x.description, 'description');
+  Subject<String> get renderedDescription => has((x) => x.renderedDescription, 'renderedDescription');
+  Subject<bool> get isArchived => has((x) => x.isArchived, 'isArchived');
 }
 
 extension TopicNameChecks on Subject<TopicName> {

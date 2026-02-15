@@ -1,10 +1,12 @@
 import 'dart:math';
 
 import 'package:checks/checks.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:legacy_checks/legacy_checks.dart';
 import 'package:zulip/widgets/button.dart';
+import 'package:zulip/widgets/icons.dart';
 
 import '../flutter_checks.dart';
 import '../model/binding.dart';
@@ -95,5 +97,90 @@ void main() {
     }
     testVerticalOuterPadding(sizeVariant: ZulipWebUiKitButtonSize.small);
     testVerticalOuterPadding(sizeVariant: ZulipWebUiKitButtonSize.normal);
+  });
+
+  group('ZulipIconButton', () {
+    testWidgets('occupies a 40px square', (tester) async {
+      addTearDown(testBinding.reset);
+
+      await tester.pumpWidget(TestZulipApp(
+        child: UnconstrainedBox(
+          child: ZulipIconButton(
+            icon: ZulipIcons.follow,
+            onPressed: () {}))));
+      await tester.pump();
+
+      final element = tester.element(find.byType(ZulipIconButton));
+      final renderObject = element.renderObject as RenderBox;
+      check(renderObject).size.equals(Size.square(40));
+    });
+
+    // TODO test that the touch feedback fills the whole square
+  });
+
+  group('AnimatedScaleOnPress', () {
+    Future<void> prepare(WidgetTester tester) async {
+      addTearDown(testBinding.reset);
+
+      await tester.pumpWidget(TestZulipApp(
+        child: AnimatedScaleOnPress(
+          scaleEnd: 0.95,
+          duration: Duration(milliseconds: 100),
+          child: ZulipIconButton(
+            icon: ZulipIcons.follow,
+            onPressed: () {}))));
+      await tester.pump();
+    }
+
+    void checkAnimatedScale(WidgetTester tester, double expectedScale) {
+      final scale = tester.widget<AnimatedScale>(find.byType(AnimatedScale)).scale;
+      check(scale).equals(expectedScale);
+    }
+
+    testWidgets('Animation happens instantly when primary pointer down', (tester) async {
+      await prepare(tester);
+
+      final gesture = await tester.startGesture(tester.getCenter(find.byType(ZulipIconButton)));
+      await tester.pump();
+      checkAnimatedScale(tester, 0.95);
+
+      await gesture.up();
+      await tester.pump();
+      checkAnimatedScale(tester, 1.0);
+    });
+
+    testWidgets('Animation does not happen when secondary pointer is down', (tester) async {
+      await prepare(tester);
+
+      await tester.startGesture(tester.getCenter(find.byType(ZulipIconButton)),
+        buttons: kSecondaryButton);
+      await tester.pump();
+      checkAnimatedScale(tester, 1.0);
+    });
+
+    testWidgets('Scale reset when pointer cancel event occur', (tester) async {
+      await prepare(tester);
+
+      final gesture = await tester.startGesture(tester.getCenter(find.byType(ZulipIconButton)));
+      await tester.pump();
+      checkAnimatedScale(tester, 0.95);
+
+      await gesture.cancel();
+      await tester.pump();
+      checkAnimatedScale(tester, 1.0);
+    });
+
+    testWidgets('Scale reset when user drag their finger away from bound of widget', (tester) async {
+      await prepare(tester);
+
+      final gesture = await tester.startGesture(tester.getCenter(find.byType(ZulipIconButton)));
+      await tester.pump();
+      checkAnimatedScale(tester, 0.95);
+
+      final height = tester.getSize(find.byType(ZulipIconButton)).height;
+      await gesture.moveBy(Offset(0, -2*height));
+      await tester.pump();
+      checkAnimatedScale(tester, 1.0);
+    });
   });
 }

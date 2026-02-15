@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../generated/l10n/zulip_localizations.dart';
 import '../model/narrow.dart';
@@ -11,6 +12,7 @@ import 'app_bar.dart';
 import 'button.dart';
 import 'color.dart';
 import 'icons.dart';
+import 'image.dart';
 import 'inbox.dart';
 import 'inset_shadow.dart';
 import 'message_list.dart';
@@ -22,6 +24,7 @@ import 'store.dart';
 import 'subscription_list.dart';
 import 'text.dart';
 import 'theme.dart';
+import 'counter_badge.dart';
 import 'user.dart';
 
 enum _HomePageTab {
@@ -46,6 +49,9 @@ class HomePage extends StatefulWidget {
     unawaited(navigator.pushReplacement(
       HomePage.buildRoute(accountId: accountId)));
   }
+
+  static String contentSemanticsIdentifier = 'home-page-content';
+  static String titleSemanticsIdentifier = 'home-page-title';
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -93,58 +99,97 @@ class _HomePageState extends State<HomePage> {
       (_HomePageTab.directMessages, RecentDmConversationsPageBody()),
     ];
 
-    _NavigationBarButton button(_HomePageTab tab, IconData icon) {
-      return _NavigationBarButton(icon: icon,
-        selected: _tab.value == tab,
-        onPressed: () {
-          _tab.value = tab;
-        });
-    }
+    return Scaffold(
+      appBar: ZulipAppBar(titleSpacing: 16,
+        title: Semantics(
+          identifier: HomePage.titleSemanticsIdentifier,
+          namesRoute: true,
+          child: Text(_currentTabTitle))),
+      body: Semantics(
+        role: SemanticsRole.tabPanel,
+        identifier: HomePage.contentSemanticsIdentifier,
+        container: true,
+        explicitChildNodes: true,
+        child: Stack(
+          children: [
+            for (final (tab, body) in pageBodies)
+              Offstage(offstage: tab != _tab.value, child: body),
+          ])),
+      bottomNavigationBar: _BottomNavBar(tabNotifier: _tab));
+  }
+}
+
+class _BottomNavBar extends StatelessWidget {
+  const _BottomNavBar({required this.tabNotifier});
+
+  final ValueNotifier<_HomePageTab> tabNotifier;
+
+  _NavigationBarButton _button({
+    required _HomePageTab tab,
+    required IconData icon,
+    required String label,
+  }) {
+    return _NavigationBarButton(icon: icon,
+      label: label,
+      selected: tabNotifier.value == tab,
+      onPressed: () {
+        tabNotifier.value = tab;
+      });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final designVariables = DesignVariables.of(context);
+    final zulipLocalizations = ZulipLocalizations.of(context);
 
     // TODO(a11y): add tooltips for these buttons
     final navigationBarButtons = [
-      button(_HomePageTab.inbox,          ZulipIcons.inbox),
-      _NavigationBarButton(         icon: ZulipIcons.message_feed,
+      _button(tab: _HomePageTab.inbox,
+        icon: ZulipIcons.inbox,
+        label: zulipLocalizations.inboxPageTitle),
+      _NavigationBarButton(icon: ZulipIcons.message_feed,
+        label: zulipLocalizations.combinedFeedPageTitle,
         selected: false,
         onPressed: () => Navigator.push(context,
           MessageListPage.buildRoute(context: context,
             narrow: const CombinedFeedNarrow()))),
-      button(_HomePageTab.channels,       ZulipIcons.hash_italic),
+      _button(tab: _HomePageTab.channels,
+        icon: ZulipIcons.hash_italic,
+        label: zulipLocalizations.channelsPageTitle),
       // TODO(#1094): Users
-      button(_HomePageTab.directMessages, ZulipIcons.two_person),
-      _NavigationBarButton(         icon: ZulipIcons.menu,
+      _button(tab: _HomePageTab.directMessages,
+        icon: ZulipIcons.two_person,
+        label: zulipLocalizations.recentDmConversationsPageTitle),
+      _NavigationBarButton(icon: ZulipIcons.menu,
+        label: zulipLocalizations.navBarMenuLabel,
         selected: false,
-        onPressed: () => _showMainMenu(context, tabNotifier: _tab)),
+        onPressed: () => _showMainMenu(context, tabNotifier: tabNotifier)),
     ];
 
-    final designVariables = DesignVariables.of(context);
-    return Scaffold(
-      appBar: ZulipAppBar(titleSpacing: 16,
-        title: Text(_currentTabTitle)),
-      body: Stack(
-        children: [
-          for (final (tab, body) in pageBodies)
-            // TODO(#535): Decide if we find it helpful to use something like
-            //   [SemanticsProperties.namesRoute] to structure this UI better
-            //   for screen-reader software.
-            Offstage(offstage: tab != _tab.value, child: body),
-        ]),
-      bottomNavigationBar: DecoratedBox(
-        decoration: BoxDecoration(
-          border: Border(top: BorderSide(color: designVariables.borderBar)),
-          color: designVariables.bgBotBar),
-        child: SafeArea(
-          child: SizedBox(height: 48,
-            child: Center(
-              child: ConstrainedBox(
-                // TODO(design): determine a suitable max width for bottom nav bar
-                constraints: const BoxConstraints(maxWidth: 600),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final navigationBarButton in navigationBarButtons)
-                      Expanded(child: navigationBarButton),
-                  ])))))));
+    Widget result = DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: designVariables.borderBar)),
+        color: designVariables.bgBotBar),
+      child: SafeArea(
+        child: Center(
+          heightFactor: 1,
+          child: ConstrainedBox(
+            // TODO(design): determine a suitable max width for bottom nav bar
+            constraints: const BoxConstraints(maxWidth: 600, minHeight: 48),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final navigationBarButton in navigationBarButtons)
+                  Expanded(child: navigationBarButton),
+              ])))));
+
+    result = Semantics(
+      container: true,
+      explicitChildNodes: true,
+      role: SemanticsRole.tabBar,
+      child: result);
+
+    return result;
   }
 }
 
@@ -229,66 +274,68 @@ class _LoadingPlaceholderPageState extends State<_LoadingPlaceholderPage> {
 class _NavigationBarButton extends StatelessWidget {
   const _NavigationBarButton({
     required this.icon,
+    required this.label,
     required this.selected,
     required this.onPressed,
   });
 
   final IconData icon;
+  final String label;
   final bool selected;
   final void Function() onPressed;
 
   @override
   Widget build(BuildContext context) {
     final designVariables = DesignVariables.of(context);
+    final color = selected ? designVariables.iconSelected : designVariables.icon;
 
-    final iconColor = WidgetStateColor.fromMap({
-      WidgetState.pressed:  designVariables.iconSelected,
-      ~WidgetState.pressed: selected ? designVariables.iconSelected
-                                     : designVariables.icon,
-    });
-
-    return AnimatedScaleOnTap(
+    Widget result = AnimatedScaleOnPress(
       scaleEnd: 0.875,
       duration: const Duration(milliseconds: 100),
-      child: IconButton(
-        icon: Icon(icon, size: 24),
-        onPressed: onPressed,
-        style: IconButton.styleFrom(
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          borderRadius: BorderRadius.all(Radius.circular(4)),
           // TODO(#417): Disable splash effects for all buttons globally.
           splashFactory: NoSplash.splashFactory,
           highlightColor: designVariables.navigationButtonBg,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(4))),
-        ).copyWith(foregroundColor: iconColor)));
+          onTap: onPressed,
+          child: Padding(
+            // (Added 3px horizontal padding not present in Figma, to make the
+            // text wrap before getting too close to the button's edge, which is
+            // visible on tap-down.)
+            padding: const EdgeInsets.fromLTRB(3, 6, 3, 3),
+            child: Column(
+              spacing: 3,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 24, color: color),
+                Flexible(
+                  child: Text(
+                    label,
+                    style: TextStyle(fontSize: 12, color: color, height: 12 / 12),
+                    textAlign: TextAlign.center,
+                    textScaler: MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.5))),
+              ])))));
+
+    result = MergeSemantics(
+      child: Semantics(
+        role: SemanticsRole.tab,
+        controlsNodes: {
+          HomePage.contentSemanticsIdentifier,
+          HomePage.titleSemanticsIdentifier,
+        },
+        selected: selected,
+        onTap: onPressed,
+        child: result));
+
+    return result;
   }
 }
 
 void _showMainMenu(BuildContext context, {
   required ValueNotifier<_HomePageTab> tabNotifier,
 }) {
-  final menuItems = <Widget>[
-    const _SearchButton(),
-    // const SizedBox(height: 8),
-    _InboxButton(tabNotifier: tabNotifier),
-    // TODO: Recent conversations
-    const _MentionsButton(),
-    const _StarredMessagesButton(),
-    const _CombinedFeedButton(),
-    // TODO: Drafts
-    _ChannelsButton(tabNotifier: tabNotifier),
-    _DirectMessagesButton(tabNotifier: tabNotifier),
-    // TODO(#1094): Users
-    const _MyProfileButton(),
-    const _SwitchAccountButton(),
-    // TODO(#198): Set my status
-    // const SizedBox(height: 8),
-    const _SettingsButton(),
-    // TODO(#661): Notifications
-    // const SizedBox(height: 8),
-    const _AboutZulipButton(),
-    // TODO(#1095): VersionInfo
-  ];
-
   final designVariables = DesignVariables.of(context);
   final accountId = PerAccountStoreWidget.accountIdOf(context);
   showModalBottomSheet<void>(
@@ -307,31 +354,145 @@ void _showMainMenu(BuildContext context, {
     builder: (BuildContext _) {
       return PerAccountStoreWidget(
         accountId: accountId,
-        child: SafeArea(
-          minimum: const EdgeInsets.only(bottom: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(child: InsetShadowBox(
-                top: 8, bottom: 8,
-                color: designVariables.bgBotBar,
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-                  child: Column(children: menuItems)))),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: AnimatedScaleOnTap(
-                  scaleEnd: 0.95,
-                  duration: Duration(milliseconds: 100),
-                  child: BottomSheetDismissButton(
-                    style: BottomSheetDismissButtonStyle.close))),
-            ])));
+        child: _MainMenu(tabNotifier: tabNotifier));
     });
 }
 
-abstract class _MenuButton extends StatelessWidget {
-  const _MenuButton();
+/// The main-menu sheet.
+///
+/// Figma link:
+///   https://www.figma.com/design/1JTNtYo9memgW7vV6d0ygq/Zulip-Mobile?node-id=143-10939&t=s7AS3nEgNgjyqHck-4
+class _MainMenu extends StatelessWidget {
+  const _MainMenu({
+    required this.tabNotifier,
+  });
+
+  final ValueNotifier<_HomePageTab> tabNotifier;
+
+  @override
+  Widget build(BuildContext context) {
+    final designVariables = DesignVariables.of(context);
+
+    final menuItems = <Widget>[
+      const _SearchButton(),
+      // const SizedBox(height: 8),
+      _InboxButton(tabNotifier: tabNotifier),
+      // TODO: Recent conversations
+      const _MentionsButton(),
+      const _StarredMessagesButton(),
+      const _CombinedFeedButton(),
+      // TODO: Drafts
+      _ChannelsButton(tabNotifier: tabNotifier),
+      _DirectMessagesButton(tabNotifier: tabNotifier),
+      // TODO(#1094): Users
+      const _MyProfileButton(),
+      // TODO(#198): Set my status
+      // const SizedBox(height: 8),
+      const _SettingsButton(),
+      // TODO(#661): Notifications
+      // const SizedBox(height: 8),
+      const _AboutZulipButton(),
+      // TODO(#1095): VersionInfo
+    ];
+
+    return SafeArea(
+      minimum: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _MainMenuHeader(),
+          Flexible(child: InsetShadowBox(
+            top: 8, bottom: 8,
+            color: designVariables.bgBotBar,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+              child: Column(children: menuItems)))),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: AnimatedScaleOnPress(
+              scaleEnd: 0.95,
+              duration: Duration(milliseconds: 100),
+              child: BottomSheetDismissButton(
+                style: BottomSheetDismissButtonStyle.close))),
+        ]));
+  }
+}
+
+class _MainMenuHeader extends StatefulWidget {
+  const _MainMenuHeader();
+
+  @override
+  State<_MainMenuHeader> createState() => _MainMenuHeaderState();
+}
+
+class _MainMenuHeaderState extends State<_MainMenuHeader> {
+  bool _isPressed = false;
+
+  void _setIsPressed(bool isPressed) {
+    setState(() {
+      _isPressed = isPressed;
+    });
+  }
+
+  void _handleSwitchAccount(BuildContext context) {
+    Navigator.pop(context); // Close the main menu.
+    Navigator.push(context,
+      MaterialWidgetRoute(page: const ChooseAccountPage()));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final zulipLocalizations = ZulipLocalizations.of(context);
+    final designVariables = DesignVariables.of(context);
+    final store = PerAccountStoreWidget.of(context);
+
+    return Tooltip(
+      message: zulipLocalizations.switchAccountButtonTooltip,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _handleSwitchAccount(context),
+        onTapDown: (_) => _setIsPressed(true),
+        onTapUp: (_) => _setIsPressed(false),
+        onTapCancel: () => _setIsPressed(false),
+        child: AnimatedOpacity(
+          opacity: _isPressed ? 0.5 : 1,
+          duration: const Duration(milliseconds: 100),
+          child: Padding(
+            padding: const EdgeInsets.only(top: 6, left: 12, right: 12),
+            child: Row(spacing: 12, children: [
+              Flexible(child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(spacing: 8, children: [
+                  AvatarShape(
+                    size: 28,
+                    borderRadius: 4,
+                    child: RealmContentNetworkImage(
+                      store.resolvedRealmIcon,
+                      filterQuality: FilterQuality.medium,
+                      fit: BoxFit.cover)),
+                  Flexible(child: Text(store.realmName,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: designVariables.title,
+                      fontSize: 20,
+                      height: 24 / 20,
+                    ).merge(weightVariableTextStyle(context, wght: 600)))),
+                ]))),
+              Icon(ZulipIcons.arrow_left_right,
+                color: designVariables.icon,
+                size: 24),
+            ])))));
+  }
+}
+
+/// A button in the main menu.
+///
+/// See Figma:
+///   https://www.figma.com/design/1JTNtYo9memgW7vV6d0ygq/Zulip-Mobile?node-id=2037-243759&m=dev
+@visibleForTesting
+abstract class MenuButton extends StatelessWidget {
+  const MenuButton({super.key});
 
   String label(ZulipLocalizations zulipLocalizations);
 
@@ -351,6 +512,8 @@ abstract class _MenuButton extends StatelessWidget {
       color: selected ? designVariables.iconSelected : designVariables.icon);
   }
 
+  Widget? buildTrailing(BuildContext context) => null;
+
   void onPressed(BuildContext context);
 
   void _handlePress(BuildContext context) {
@@ -366,11 +529,20 @@ abstract class _MenuButton extends StatelessWidget {
     final designVariables = DesignVariables.of(context);
     final zulipLocalizations = ZulipLocalizations.of(context);
 
+    // Make [TextButton] set 44 instead of 48 for the height.
+    final visualDensity = VisualDensity(vertical: -1);
+    // A value that [TextButton] adds to some of its layout parameters;
+    // we can cancel out those adjustments by subtracting it.
+    final densityVerticalAdjustment = visualDensity.baseSizeAdjustment.dy;
+
     final borderSideSelected = BorderSide(width: 1,
       strokeAlign: BorderSide.strokeAlignOutside,
       color: designVariables.borderMenuButtonSelected);
     final buttonStyle = TextButton.styleFrom(
-      padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 8),
+      // Make the button 44px instead of 48px tall, to match the Figma.
+      visualDensity: visualDensity,
+      padding: EdgeInsets.symmetric(
+        vertical: 10 - densityVerticalAdjustment, horizontal: 8),
       foregroundColor: designVariables.labelMenuButton,
       // This has a default behavior of affecting the background color of the
       // button for states including "hovered", "focused" and "pressed".
@@ -391,28 +563,29 @@ abstract class _MenuButton extends StatelessWidget {
         ~WidgetState.pressed: selected ? borderSideSelected : null,
       }));
 
-    return AnimatedScaleOnTap(
+    final trailing = buildTrailing(context);
+
+    return AnimatedScaleOnPress(
       duration: const Duration(milliseconds: 100),
       scaleEnd: 0.95,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 44),
-        child: TextButton(
-          onPressed: () => _handlePress(context),
-          style: buttonStyle,
-          child: Row(spacing: 8, children: [
-            SizedBox.square(dimension: _iconSize,
-              child: buildLeading(context)),
-            Expanded(child: Text(label(zulipLocalizations),
-              // TODO(design): determine if we prefer to wrap
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 19, height: 26 / 19)
-                .merge(weightVariableTextStyle(context, wght: selected ? 600 : 400)))),
-          ]))));
+      child: TextButton(
+        onPressed: () => _handlePress(context),
+        style: buttonStyle,
+        child: Row(spacing: 8, children: [
+          SizedBox.square(dimension: _iconSize,
+            child: buildLeading(context)),
+          Expanded(child: Text(label(zulipLocalizations),
+            // TODO(design): determine if we prefer to wrap
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 19, height: 23 / 19)
+              .merge(weightVariableTextStyle(context, wght: selected ? 600 : 400)))),
+          ?trailing,
+        ])));
   }
 }
 
 /// A menu button controlling the selected [_HomePageTab] on the bottom nav bar.
-abstract class _NavigationBarMenuButton extends _MenuButton {
+abstract class _NavigationBarMenuButton extends MenuButton {
   const _NavigationBarMenuButton({required this.tabNotifier});
 
   final ValueNotifier<_HomePageTab> tabNotifier;
@@ -428,7 +601,7 @@ abstract class _NavigationBarMenuButton extends _MenuButton {
   }
 }
 
-class _SearchButton extends _MenuButton {
+class _SearchButton extends MenuButton {
   const _SearchButton();
 
   @override
@@ -458,10 +631,23 @@ class _InboxButton extends _NavigationBarMenuButton {
   }
 
   @override
+  Widget? buildTrailing(BuildContext context) {
+    final store = PerAccountStoreWidget.of(context);
+    final unreadCount = store.unreads.countInCombinedFeedNarrow();
+    if (unreadCount == 0) return null;
+    return CounterBadge(
+      kind: CounterBadgeKind.unread,
+      style: CounterBadgeStyle.mainMenu,
+      count: unreadCount,
+      channelIdForBackground: null,
+    );
+  }
+
+  @override
   _HomePageTab get navigationTarget => _HomePageTab.inbox;
 }
 
-class _MentionsButton extends _MenuButton {
+class _MentionsButton extends MenuButton {
   const _MentionsButton();
 
   @override
@@ -473,13 +659,26 @@ class _MentionsButton extends _MenuButton {
   }
 
   @override
+  Widget? buildTrailing(BuildContext context) {
+    final store = PerAccountStoreWidget.of(context);
+    final unreadCount = store.unreads.countInMentionsNarrow();
+    if (unreadCount == 0) return null;
+    return CounterBadge(
+      kind: CounterBadgeKind.unread,
+      style: CounterBadgeStyle.mainMenu,
+      count: unreadCount,
+      channelIdForBackground: null,
+    );
+  }
+
+  @override
   void onPressed(BuildContext context) {
     Navigator.of(context).push(MessageListPage.buildRoute(
       context: context, narrow: const MentionsNarrow()));
   }
 }
 
-class _StarredMessagesButton extends _MenuButton {
+class _StarredMessagesButton extends MenuButton {
   const _StarredMessagesButton();
 
   @override
@@ -491,13 +690,25 @@ class _StarredMessagesButton extends _MenuButton {
   }
 
   @override
+  Widget? buildTrailing(BuildContext context) {
+    final store = PerAccountStoreWidget.of(context);
+    if (!store.userSettings.starredMessageCounts) return null;
+    return CounterBadge(
+      kind: CounterBadgeKind.quantity,
+      style: CounterBadgeStyle.mainMenu,
+      count: store.starredMessages.length,
+      channelIdForBackground: null,
+    );
+  }
+
+  @override
   void onPressed(BuildContext context) {
     Navigator.of(context).push(MessageListPage.buildRoute(
       context: context, narrow: const StarredMessagesNarrow()));
   }
 }
 
-class _CombinedFeedButton extends _MenuButton {
+class _CombinedFeedButton extends MenuButton {
   const _CombinedFeedButton();
 
   @override
@@ -542,10 +753,23 @@ class _DirectMessagesButton extends _NavigationBarMenuButton {
   }
 
   @override
+  Widget? buildTrailing(BuildContext context) {
+    final store = PerAccountStoreWidget.of(context);
+    final unreadCount = store.unreads.countInDms();
+    if (unreadCount == 0) return null;
+    return CounterBadge(
+      kind: CounterBadgeKind.unread,
+      style: CounterBadgeStyle.mainMenu,
+      count: unreadCount,
+      channelIdForBackground: null,
+    );
+  }
+
+  @override
   _HomePageTab get navigationTarget => _HomePageTab.directMessages;
 }
 
-class _MyProfileButton extends _MenuButton {
+class _MyProfileButton extends MenuButton {
   const _MyProfileButton();
 
   @override
@@ -556,7 +780,7 @@ class _MyProfileButton extends _MenuButton {
     final store = PerAccountStoreWidget.of(context);
     return Avatar(
       userId: store.selfUserId,
-      size: _MenuButton._iconSize,
+      size: MenuButton._iconSize,
       borderRadius: 4,
       showPresence: false,
     );
@@ -575,24 +799,7 @@ class _MyProfileButton extends _MenuButton {
   }
 }
 
-class _SwitchAccountButton extends _MenuButton {
-  const _SwitchAccountButton();
-
-  @override
-  IconData? get icon => ZulipIcons.arrow_left_right;
-
-  @override
-  String label(ZulipLocalizations zulipLocalizations) {
-    return zulipLocalizations.switchAccountButton;
-  }
-
-  @override
-  void onPressed(BuildContext context) {
-    Navigator.of(context).push(MaterialWidgetRoute(page: const ChooseAccountPage()));
-  }
-}
-
-class _SettingsButton extends _MenuButton {
+class _SettingsButton extends MenuButton {
   const _SettingsButton();
 
   @override
@@ -609,7 +816,7 @@ class _SettingsButton extends _MenuButton {
   }
 }
 
-class _AboutZulipButton extends _MenuButton {
+class _AboutZulipButton extends MenuButton {
   const _AboutZulipButton();
 
   @override

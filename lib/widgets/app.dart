@@ -78,6 +78,18 @@ class ZulipApp extends StatefulWidget {
     return ScaffoldMessenger.of(context);
   }
 
+  /// The app's stack of navigation routes.
+  ///
+  /// This is null when the navigator is not mounted,
+  /// i.e. until [ready] becomes true.
+  static NavigationStack? get navigationStack {
+    final navigatorState = navigatorKey.currentState;
+    if (navigatorState == null) return null;
+    final appState = navigatorState.context
+      .findAncestorStateOfType<_ZulipAppState>()!;
+    return appState._navStackTracker;
+  }
+
   /// Reset the state of [ZulipApp] statics, for testing.
   ///
   /// TODO refactor this better, perhaps unify with ZulipBinding
@@ -156,6 +168,8 @@ class ZulipApp extends StatefulWidget {
 }
 
 class _ZulipAppState extends State<ZulipApp> with WidgetsBindingObserver {
+  final _navStackTracker = _TrackNavigationStack();
+
   @override
   void initState() {
     super.initState();
@@ -174,50 +188,43 @@ class _ZulipAppState extends State<ZulipApp> with WidgetsBindingObserver {
         .routeForNotificationFromLaunch(context: context);
   }
 
-  // TODO migrate Android's notification navigation to use the new Pigeon API.
-  AccountRoute<void>? _initialRouteAndroid(
-    BuildContext context,
-    String initialRoute,
-  ) {
-    final initialRouteUrl = Uri.tryParse(initialRoute);
-    if (initialRouteUrl case Uri(scheme: 'zulip', host: 'notification')) {
-      assert(debugLog('got notif: url: $initialRouteUrl'));
-      final data = NotificationOpenService.tryParseAndroidNotificationUrl(
-        context: context,
-        url: initialRouteUrl);
-      if (data == null) return null; // TODO(log)
-      return NotificationOpenService.routeForNotification(
-        context: context,
-        data: data);
-    }
-
-    return null;
-  }
-
   List<Route<dynamic>> _handleGenerateInitialRoutes(String initialRoute) {
     // The `_ZulipAppState.context` lacks the required ancestors. Instead
     // we use the Navigator which should be available when this callback is
     // called and its context should have the required ancestors.
     final context = ZulipApp.navigatorKey.currentContext!;
 
-    final route = defaultTargetPlatform == TargetPlatform.iOS
-        ? _initialRouteIos(context)
-        : _initialRouteAndroid(context, initialRoute);
-    if (route != null) {
-      return [
-        HomePage.buildRoute(accountId: route.accountId),
-        route,
-      ];
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      final route = _initialRouteIos(context);
+      if (route != null) {
+        return [
+          HomePage.buildRoute(accountId: route.accountId),
+          route,
+        ];
+      }
+    } else {
+      // On Android, we ignore any notification at this step, and handle
+      // any initial notification by a navigation after the first frame.
+      // See [NotificationOpenService.start], and the buffering in
+      // NotificationTapEventListener.kt when onListen is not yet called.
+      //
+      // The navigation causes a small visible glitch where one loading spinner
+      // gets replaced by another; see recordings:
+      //   https://github.com/zulip/zulip-flutter/pull/2043#discussion_r2794138972
+      // TODO it'd be nice to avoid that glitch by controlling the initial route.
+      //   We accept this glitch as a workaround for an upstream issue:
+      //   https://github.com/flutter/flutter/issues/178305
     }
 
     final globalStore = GlobalStoreWidget.of(context);
-    // TODO(#524) choose initial account as last one used
-    final initialAccountId = globalStore.accounts.firstOrNull?.id;
+    final lastVisitedAccountId = globalStore.lastVisitedAccount?.id;
+
     return [
-      if (initialAccountId == null)
+      if (lastVisitedAccountId == null)
+        // There are no accounts, or the last-visited account was logged out.
         MaterialWidgetRoute(page: const ChooseAccountPage())
       else
-        HomePage.buildRoute(accountId: initialAccountId),
+        HomePage.buildRoute(accountId: lastVisitedAccountId),
     ];
   }
 
@@ -226,9 +233,6 @@ class _ZulipAppState extends State<ZulipApp> with WidgetsBindingObserver {
     switch (routeInformation.uri) {
       case Uri(scheme: 'zulip', host: 'login') && var url:
         await LoginPage.handleWebAuthUrl(url);
-        return true;
-      case Uri(scheme: 'zulip', host: 'notification') && var url:
-        await NotificationOpenService.navigateForAndroidNotificationUrl(url);
         return true;
     }
     return super.didPushRouteInformation(routeInformation);
@@ -254,6 +258,8 @@ class _ZulipAppState extends State<ZulipApp> with WidgetsBindingObserver {
             if (widget.navigatorObservers != null)
               ...widget.navigatorObservers!,
             _PreventEmptyStack(),
+            _navStackTracker,
+            _UpdateLastVisitedAccount(GlobalStoreWidget.of(context)),
           ],
           builder: (BuildContext context, Widget? child) {
             if (!ZulipApp.ready.value) {
@@ -276,6 +282,87 @@ class _ZulipAppState extends State<ZulipApp> with WidgetsBindingObserver {
           onGenerateInitialRoutes: _handleGenerateInitialRoutes);
       }));
   }
+}
+
+/// A view of the app's navigation stack, plus convenient helpers to inspect it.
+mixin NavigationStack {
+  List<Route<dynamic>> get routes;
+
+  /// The Zulip account ID being viewed topmost in the navigation, if any.
+  ///
+  /// Typically there should be only one account present in the nav stack
+  /// at a time, in which case this is that one account's ID.
+  int? get currentAccountId {
+    for (final route in routes.reversed) {
+      if (route case AccountPageRouteMixin(:final accountId)) {
+        return accountId;
+      }
+    }
+    return null;
+  }
+
+  /// The topmost page route on the stack, if any.
+  ///
+  /// In particular this excludes dialogs and modal bottom sheets.
+  PageRoute<dynamic>? get currentPageRoute {
+    for (final route in routes.reversed) {
+      switch (route) {
+        case PageRoute():
+          return route;
+
+        case PopupRoute():
+          // This case includes dialogs and modal bottom sheets.
+          continue;
+
+        default:
+          // TODO(log) All known concrete Route subclasses are either of
+          //   PageRoute or PopupRoute.  If something else appears, we should
+          //   decide how the callers of this method want to treat it.
+          continue;
+      }
+    }
+    return null;
+  }
+}
+
+// TODO(upstream): why doesn't Navigator expose the list of routes itself?
+class _TrackNavigationStack extends NavigatorObserver with NavigationStack {
+  @override
+  final List<Route<dynamic>> routes = [];
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    assert(identical(routes.lastOrNull, previousRoute));
+    routes.add(route);
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    assert(identical(routes.lastOrNull, route));
+    routes.removeLast();
+    assert(identical(routes.lastOrNull, previousRoute));
+  }
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    final index = routes.lastIndexOf(route);
+    assert(index >= 0);
+    routes.removeAt(index);
+    assert((previousRoute == null && index == 0)
+        || (previousRoute != null && routes[index - 1] == previousRoute));
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    assert(newRoute != null); // TODO(upstream) why doesn't signature say this?
+    assert(oldRoute != null); // TODO(upstream) why doesn't signature say this?
+    final index = routes.lastIndexOf(oldRoute!);
+    assert(index >= 0);
+    routes[index] = newRoute!;
+  }
+
+  // No didChangeTop; it summarizes changes that the observer was already
+  // notified of through the other methods above.
 }
 
 /// Pushes a route whenever the observed navigator stack becomes empty.
@@ -302,6 +389,19 @@ class _PreventEmptyStack extends NavigatorObserver {
   @override
   void didPop(Route<void> route, Route<void>? previousRoute) async {
     _pushRouteIfEmptyStack();
+  }
+}
+
+class _UpdateLastVisitedAccount extends NavigatorObserver {
+  _UpdateLastVisitedAccount(this.globalStore);
+
+  final GlobalStore globalStore;
+
+  @override
+  void didChangeTop(Route<void> topRoute, _) {
+    if (topRoute case AccountPageRouteMixin(:var accountId)) {
+      globalStore.setLastVisitedAccount(accountId);
+    }
   }
 }
 
@@ -332,7 +432,7 @@ class ChooseAccountPage extends StatelessWidget {
                 final dialog = showSuggestedActionDialog(context: context,
                   title: zulipLocalizations.logOutConfirmationDialogTitle,
                   message: zulipLocalizations.logOutConfirmationDialogMessage,
-                  // TODO(#1032) "destructive" style for action button
+                  destructiveActionButton: true,
                   actionButtonText: zulipLocalizations.logOutConfirmationDialogConfirmButton);
                 if (await dialog.result == true) {
                   if (!context.mounted) return;

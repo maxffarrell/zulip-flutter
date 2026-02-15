@@ -65,6 +65,7 @@ Map<String, dynamic> _$UserSettingsUpdateEventToJson(
 
 const _$UserSettingNameEnumMap = {
   UserSettingName.twentyFourHourTime: 'twenty_four_hour_time',
+  UserSettingName.starredMessageCounts: 'starred_message_counts',
   UserSettingName.displayEmojiReactionUsers: 'display_emoji_reaction_users',
   UserSettingName.emojiset: 'emojiset',
   UserSettingName.presenceEnabled: 'presence_enabled',
@@ -410,9 +411,11 @@ Map<String, dynamic> _$ChannelCreateEventToJson(ChannelCreateEvent instance) =>
 ChannelDeleteEvent _$ChannelDeleteEventFromJson(Map<String, dynamic> json) =>
     ChannelDeleteEvent(
       id: (json['id'] as num).toInt(),
-      streams: (json['streams'] as List<dynamic>)
-          .map((e) => ZulipStream.fromJson(e as Map<String, dynamic>))
-          .toList(),
+      channelIds:
+          (ChannelDeleteEvent._readChannelIds(json, 'stream_ids')
+                  as List<dynamic>)
+              .map((e) => (e as num).toInt())
+              .toList(),
     );
 
 Map<String, dynamic> _$ChannelDeleteEventToJson(ChannelDeleteEvent instance) =>
@@ -420,7 +423,7 @@ Map<String, dynamic> _$ChannelDeleteEventToJson(ChannelDeleteEvent instance) =>
       'id': instance.id,
       'type': instance.type,
       'op': instance.op,
-      'streams': instance.streams,
+      'stream_ids': instance.channelIds,
     };
 
 ChannelUpdateEvent _$ChannelUpdateEventFromJson(Map<String, dynamic> json) =>
@@ -456,13 +459,19 @@ Map<String, dynamic> _$ChannelUpdateEventToJson(ChannelUpdateEvent instance) =>
 
 const _$ChannelPropertyNameEnumMap = {
   ChannelPropertyName.name: 'name',
+  ChannelPropertyName.isArchived: 'is_archived',
   ChannelPropertyName.description: 'description',
   ChannelPropertyName.firstMessageId: 'first_message_id',
   ChannelPropertyName.inviteOnly: 'invite_only',
   ChannelPropertyName.messageRetentionDays: 'message_retention_days',
   ChannelPropertyName.channelPostPolicy: 'stream_post_policy',
+  ChannelPropertyName.folderId: 'folder_id',
   ChannelPropertyName.canAddSubscribersGroup: 'can_add_subscribers_group',
+  ChannelPropertyName.canDeleteAnyMessageGroup: 'can_delete_any_message_group',
+  ChannelPropertyName.canDeleteOwnMessageGroup: 'can_delete_own_message_group',
+  ChannelPropertyName.canSendMessageGroup: 'can_send_message_group',
   ChannelPropertyName.canSubscribeGroup: 'can_subscribe_group',
+  ChannelPropertyName.isRecentlyActive: 'is_recently_active',
   ChannelPropertyName.streamWeeklyTraffic: 'stream_weekly_traffic',
 };
 
@@ -509,7 +518,11 @@ SubscriptionUpdateEvent _$SubscriptionUpdateEventFromJson(
 ) => SubscriptionUpdateEvent(
   id: (json['id'] as num).toInt(),
   streamId: (json['stream_id'] as num).toInt(),
-  property: $enumDecode(_$SubscriptionPropertyEnumMap, json['property']),
+  property: $enumDecode(
+    _$SubscriptionPropertyEnumMap,
+    json['property'],
+    unknownValue: SubscriptionProperty.unknown,
+  ),
   value: SubscriptionUpdateEvent._readValue(json, 'value'),
 );
 
@@ -520,14 +533,13 @@ Map<String, dynamic> _$SubscriptionUpdateEventToJson(
   'type': instance.type,
   'op': instance.op,
   'stream_id': instance.streamId,
-  'property': _$SubscriptionPropertyEnumMap[instance.property]!,
+  'property': instance.property,
   'value': instance.value,
 };
 
 const _$SubscriptionPropertyEnumMap = {
   SubscriptionProperty.color: 'color',
   SubscriptionProperty.isMuted: 'is_muted',
-  SubscriptionProperty.inHomeView: 'in_home_view',
   SubscriptionProperty.pinToTop: 'pin_to_top',
   SubscriptionProperty.desktopNotifications: 'desktop_notifications',
   SubscriptionProperty.audibleNotifications: 'audible_notifications',
@@ -579,6 +591,77 @@ Map<String, dynamic> _$SubscriptionPeerRemoveEventToJson(
   'op': instance.op,
   'stream_ids': instance.streamIds,
   'user_ids': instance.userIds,
+};
+
+ChannelFolderAddEvent _$ChannelFolderAddEventFromJson(
+  Map<String, dynamic> json,
+) => ChannelFolderAddEvent(
+  id: (json['id'] as num).toInt(),
+  channelFolder: ChannelFolder.fromJson(
+    json['channel_folder'] as Map<String, dynamic>,
+  ),
+);
+
+Map<String, dynamic> _$ChannelFolderAddEventToJson(
+  ChannelFolderAddEvent instance,
+) => <String, dynamic>{
+  'id': instance.id,
+  'type': instance.type,
+  'op': instance.op,
+  'channel_folder': instance.channelFolder,
+};
+
+ChannelFolderUpdateEvent _$ChannelFolderUpdateEventFromJson(
+  Map<String, dynamic> json,
+) => ChannelFolderUpdateEvent(
+  id: (json['id'] as num).toInt(),
+  channelFolderId: (json['channel_folder_id'] as num).toInt(),
+  data: ChannelFolderChange.fromJson(json['data'] as Map<String, dynamic>),
+);
+
+Map<String, dynamic> _$ChannelFolderUpdateEventToJson(
+  ChannelFolderUpdateEvent instance,
+) => <String, dynamic>{
+  'id': instance.id,
+  'type': instance.type,
+  'op': instance.op,
+  'channel_folder_id': instance.channelFolderId,
+  'data': instance.data,
+};
+
+ChannelFolderChange _$ChannelFolderChangeFromJson(Map<String, dynamic> json) =>
+    ChannelFolderChange(
+      name: json['name'] as String?,
+      description: json['description'] as String?,
+      renderedDescription: json['rendered_description'] as String?,
+      isArchived: json['is_archived'] as bool?,
+    );
+
+Map<String, dynamic> _$ChannelFolderChangeToJson(
+  ChannelFolderChange instance,
+) => <String, dynamic>{
+  'name': instance.name,
+  'description': instance.description,
+  'rendered_description': instance.renderedDescription,
+  'is_archived': instance.isArchived,
+};
+
+ChannelFolderReorderEvent _$ChannelFolderReorderEventFromJson(
+  Map<String, dynamic> json,
+) => ChannelFolderReorderEvent(
+  id: (json['id'] as num).toInt(),
+  order: (json['order'] as List<dynamic>)
+      .map((e) => (e as num).toInt())
+      .toList(),
+);
+
+Map<String, dynamic> _$ChannelFolderReorderEventToJson(
+  ChannelFolderReorderEvent instance,
+) => <String, dynamic>{
+  'id': instance.id,
+  'type': instance.type,
+  'op': instance.op,
+  'order': instance.order,
 };
 
 UserStatusEvent _$UserStatusEventFromJson(Map<String, dynamic> json) =>

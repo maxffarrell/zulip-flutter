@@ -100,13 +100,18 @@ void checkNoDialog(WidgetTester tester) {
 /// Checks for a suggested-action dialog matching an expected title and message.
 /// Fails if none is found.
 ///
+/// Use [expectDestructiveActionButton] to check whether
+/// the button is "destructive" (see [showSuggestedActionDialog]).
+/// This has no effect on Android because the "destructive" style is iOS-only.
+///
 /// On success, returns a Record with the widget's action button first
 /// and its cancel button second.
 /// Tap the action button by calling `tester.tap(find.byWidget(actionButton))`.
 (Widget, Widget) checkSuggestedActionDialog(WidgetTester tester, {
   required String expectedTitle,
-  required String expectedMessage,
+  String? expectedMessage,
   String? expectedActionButtonText,
+  bool expectDestructiveActionButton = false,
 }) {
   switch (defaultTargetPlatform) {
     case TargetPlatform.android:
@@ -116,8 +121,10 @@ void checkNoDialog(WidgetTester tester) {
       final dialog = tester.widget<AlertDialog>(find.bySubtype<AlertDialog>());
       tester.widget(find.descendant(matchRoot: true,
         of: find.byWidget(dialog.title!), matching: find.text(expectedTitle)));
-      tester.widget(find.descendant(matchRoot: true,
-        of: find.byWidget(dialog.content!), matching: find.text(expectedMessage)));
+      if (expectedMessage != null) {
+        tester.widget(find.descendant(matchRoot: true,
+          of: find.byWidget(dialog.content!), matching: find.text(expectedMessage)));
+      }
 
       final actionButton = tester.widget(find.descendant(of: find.byWidget(dialog),
         matching: find.widgetWithText(TextButton, expectedActionButtonText ?? 'Continue')));
@@ -130,11 +137,18 @@ void checkNoDialog(WidgetTester tester) {
       final dialog = tester.widget<CupertinoAlertDialog>(find.byType(CupertinoAlertDialog));
       tester.widget(find.descendant(matchRoot: true,
         of: find.byWidget(dialog.title!), matching: find.text(expectedTitle)));
-      tester.widget(find.descendant(matchRoot: true,
-        of: find.byWidget(dialog.content!), matching: find.text(expectedMessage)));
+      if (expectedMessage != null) {
+        tester.widget(find.descendant(matchRoot: true,
+          of: find.byWidget(dialog.content!), matching: find.text(expectedMessage)));
+      }
 
-      final actionButton = tester.widget(find.descendant(of: find.byWidget(dialog),
-        matching: find.widgetWithText(CupertinoDialogAction, expectedActionButtonText ?? 'Continue')));
+      final actionButton = tester.widget<CupertinoDialogAction>(
+        find.descendant(
+          of: find.byWidget(dialog),
+          matching: find.widgetWithText(
+            CupertinoDialogAction,
+            expectedActionButtonText ?? 'Continue')));
+      check(actionButton.isDestructiveAction).equals(expectDestructiveActionButton);
       final cancelButton = tester.widget(find.descendant(of: find.byWidget(dialog),
         matching: find.widgetWithText(CupertinoDialogAction, 'Cancel')));
       return (actionButton, cancelButton);

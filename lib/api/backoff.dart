@@ -8,7 +8,8 @@ class BackoffMachine {
   BackoffMachine({
     this.firstBound = const Duration(milliseconds: 100),
     this.maxBound = const Duration(seconds: 10),
-  }) : assert(firstBound <= maxBound);
+  }) : assert(firstBound <= maxBound),
+       _bound = firstBound;
 
   /// How many waits have completed so far.
   ///
@@ -21,6 +22,11 @@ class BackoffMachine {
   ///
   /// The actual duration will vary randomly up to this value; see [wait].
   final Duration firstBound;
+
+  /// The upper bound on the duration of the next wait.
+  ///
+  /// The actual duration will vary randomly up to this value; see [wait].
+  Duration _bound;
 
   /// The maximum upper bound on the duration of each wait,
   /// even after many waits.
@@ -55,6 +61,8 @@ class BackoffMachine {
     }());
   }
 
+  bool _debugWaitInProgress = false;
+
   /// A future that resolves after an appropriate backoff time,
   /// with jitter applied to capped exponential growth.
   ///
@@ -83,12 +91,21 @@ class BackoffMachine {
   /// Because in the real world any delay takes nonzero time, this mainly
   /// affects tests that use fake time, and keeps their behavior more realistic.
   Future<void> wait() async {
-    final bound = _minDuration(maxBound,
-                               firstBound * pow(base, _waitsCompleted));
+    assert(!_debugWaitInProgress, 'Previous wait still in progress.');
+    assert(() {
+      _debugWaitInProgress = true;
+      return true;
+    }());
+    assert(_bound <= maxBound);
     final duration = debugDuration ?? _maxDuration(const Duration(microseconds: 1),
-                                                   bound * Random().nextDouble());
+                                                   _bound * Random().nextDouble());
+    _bound = _minDuration(maxBound, _bound * base);
     await Future<void>.delayed(duration);
     _waitsCompleted++;
+    assert(() {
+      _debugWaitInProgress = false;
+      return true;
+    }());
   }
 }
 

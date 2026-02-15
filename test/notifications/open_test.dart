@@ -6,20 +6,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zulip/api/model/model.dart';
 import 'package:zulip/api/notifications.dart';
+import 'package:zulip/api/route/channels.dart';
 import 'package:zulip/host/notifications.dart';
-import 'package:zulip/model/database.dart';
 import 'package:zulip/model/localizations.dart';
 import 'package:zulip/model/narrow.dart';
+import 'package:zulip/model/push_device.dart';
+import 'package:zulip/model/store.dart';
 import 'package:zulip/notifications/open.dart';
 import 'package:zulip/notifications/receive.dart';
 import 'package:zulip/widgets/app.dart';
 import 'package:zulip/widgets/home.dart';
+import 'package:zulip/widgets/icons.dart';
 import 'package:zulip/widgets/message_list.dart';
 import 'package:zulip/widgets/page.dart';
+import 'package:zulip/widgets/topic_list.dart';
 
+import '../api/fake_api.dart';
 import '../example_data.dart' as eg;
 import '../model/binding.dart';
 import '../model/narrow_checks.dart';
+import '../model/store_checks.dart';
+import '../model/test_store.dart';
 import '../stdlib_checks.dart';
 import '../test_navigation.dart';
 import '../widgets/checks.dart';
@@ -72,51 +79,69 @@ Map<String, Object?> messageApnsPayload(
 
 void main() {
   TestZulipBinding.ensureInitialized();
+  MessageListPage.debugEnableMarkReadOnScroll = false;
   final zulipLocalizations = GlobalLocalizations.zulipLocalizations;
 
-  Future<void> init({bool addSelfAccount = true}) async {
-    if (addSelfAccount) {
-      await testBinding.globalStore.add(eg.selfAccount, eg.initialSnapshot());
-    }
+  Future<void> init() async {
     addTearDown(testBinding.reset);
     testBinding.firebaseMessagingInitialToken = '012abc';
     addTearDown(NotificationService.debugReset);
     NotificationService.debugBackgroundIsolateIsLive = false;
+    PushDeviceManager.debugAutoPause = true;
+    addTearDown(() => PushDeviceManager.debugAutoPause = false);
     await NotificationService.instance.start();
   }
 
   group('NotificationOpenService', () {
+    late TransitionDurationObserver transitionDurationObserver;
     late List<Route<void>> pushedRoutes;
+    Route<void>? lastPoppedRoute;
 
-    void takeStartingRoutes({Account? account, bool withAccount = true}) {
-      account ??= eg.selfAccount;
-      final expected = <Condition<Object?>>[
-        if (withAccount)
-          (it) => it.isA<MaterialAccountWidgetRoute>()
-            ..accountId.equals(account!.id)
-            ..page.isA<HomePage>()
-        else
-          (it) => it.isA<WidgetRoute>().page.isA<ChooseAccountPage>(),
-      ];
-      check(pushedRoutes.take(expected.length)).deepEquals(expected);
-      pushedRoutes.removeRange(0, expected.length);
+    void takeHomePageRouteForAccount(int accountId) {
+      check(pushedRoutes).first.which(
+        (it) => it.isA<MaterialAccountWidgetRoute>()
+          ..accountId.equals(accountId)
+          ..page.isA<HomePage>());
+      pushedRoutes.removeAt(0);
     }
 
-    Future<void> prepare(WidgetTester tester,
-        {bool early = false, bool withAccount = true}) async {
-      await init(addSelfAccount: false);
+    void takeChooseAccountPageRoute() {
+      check(pushedRoutes).first.which(
+        (it) => it.isA<WidgetRoute>().page.isA<ChooseAccountPage>());
+      pushedRoutes.removeAt(0);
+    }
+
+    Future<void> prepare(WidgetTester tester, {bool early = false}) async {
+      await init();
       pushedRoutes = [];
+      lastPoppedRoute = null;
       final testNavObserver = TestNavigatorObserver()
-        ..onPushed = (route, prevRoute) => pushedRoutes.add(route);
+        ..onPushed = (route, prevRoute) {
+          pushedRoutes.add(route);
+        }
+        ..onPopped = (route, prevRoute) {
+          lastPoppedRoute = route;
+        }
+        ..onReplaced = (route, prevRoute) {
+          lastPoppedRoute = prevRoute;
+          pushedRoutes.add(route!);
+        };
+      transitionDurationObserver = TransitionDurationObserver();
       // This uses [ZulipApp] instead of [TestZulipApp] because notification
       // logic uses `await ZulipApp.navigator`.
-      await tester.pumpWidget(ZulipApp(navigatorObservers: [testNavObserver]));
+      await tester.pumpWidget(ZulipApp(
+        navigatorObservers: [transitionDurationObserver, testNavObserver]));
       if (early) {
         check(pushedRoutes).isEmpty();
         return;
       }
       await tester.pump();
-      takeStartingRoutes(withAccount: withAccount);
+      final lastVisitedAccountId = testBinding.globalStore.lastVisitedAccount?.id;
+      if (lastVisitedAccountId == null) {
+        takeChooseAccountPageRoute();
+      } else {
+        takeHomePageRouteForAccount(lastVisitedAccountId);
+      }
       check(pushedRoutes).isEmpty();
     }
 
@@ -126,8 +151,8 @@ void main() {
         realmUrl: data.realmUrl,
         userId: data.userId,
         narrow: switch (data.recipient) {
-        FcmMessageChannelRecipient(:var streamId, :var topic) =>
-          TopicNarrow(streamId, topic),
+        FcmMessageChannelRecipient(:var channelId, :var topic) =>
+          TopicNarrow(channelId, topic),
         FcmMessageDmRecipient(:var allRecipientIds) =>
           DmNarrow(allRecipientIds: allRecipientIds, selfUserId: data.userId),
       }).buildAndroidNotificationUrl();
@@ -137,14 +162,14 @@ void main() {
       switch (defaultTargetPlatform) {
         case TargetPlatform.android:
           final intentDataUrl = androidNotificationUrlForMessage(account, message);
-          unawaited(
-            WidgetsBinding.instance.handlePushRoute(intentDataUrl.toString()));
+          testBinding.notificationPigeonApi.addNotificationTapEvent(
+            AndroidNotificationTapEvent(dataUrl: intentDataUrl.toString()));
           await tester.idle(); // let navigateForNotification find navigator
 
         case TargetPlatform.iOS:
           final payload = messageApnsPayload(message, account: account);
           testBinding.notificationPigeonApi.addNotificationTapEvent(
-            NotificationTapEvent(payload: payload));
+            IosNotificationTapEvent(payload: payload));
           await tester.idle(); // let navigateForNotification find navigator
 
         default:
@@ -155,11 +180,11 @@ void main() {
     void setupNotificationDataForLaunch(WidgetTester tester, Account account, Message message) {
       switch (defaultTargetPlatform) {
         case TargetPlatform.android:
-          // Set up a value for `PlatformDispatcher.defaultRouteName` to return,
-          // for determining the initial route.
+          // Set up an event to be emitted from
+          // `notificationPigeonApi.notificationTapEventsStream`.
           final intentDataUrl = androidNotificationUrlForMessage(account, message);
-          addTearDown(tester.binding.platformDispatcher.clearDefaultRouteNameTestValue);
-          tester.binding.platformDispatcher.defaultRouteNameTestValue = intentDataUrl.toString();
+          testBinding.notificationPigeonApi.addNotificationTapEvent(
+            AndroidNotificationTapEvent(dataUrl: intentDataUrl.toString()));
 
         case TargetPlatform.iOS:
           // Set up a value to return for
@@ -173,6 +198,14 @@ void main() {
       }
     }
 
+    void takeHomePageReplacement(int accountId) {
+      check(lastPoppedRoute).which(
+        (it) => it.isA<MaterialAccountWidgetRoute>()
+          ..page.isA<HomePage>());
+      lastPoppedRoute = null;
+      takeHomePageRouteForAccount(accountId);
+    }
+
     void matchesNavigation(Subject<Route<void>> route, Account account, Message message) {
       route.isA<MaterialAccountWidgetRoute>()
         ..accountId.equals(account.id)
@@ -181,8 +214,18 @@ void main() {
             selfUserId: account.userId));
     }
 
-    Future<void> checkOpenNotification(WidgetTester tester, Account account, Message message) async {
+    Future<void> checkOpenNotification(
+      WidgetTester tester,
+      Account account,
+      Message message, {
+      bool expectHomePageReplaced = false,
+    }) async {
       await openNotification(tester, account, message);
+      if (expectHomePageReplaced) {
+        takeHomePageReplacement(account.id);
+      } else {
+        check(lastPoppedRoute).isNull();
+      }
       matchesNavigation(check(pushedRoutes).single, account, message);
       pushedRoutes.clear();
     }
@@ -211,14 +254,16 @@ void main() {
 
       await checkOpenNotification(tester,
         eg.selfAccount.copyWith(realmUrl: Uri.parse('http://chat.example/')),
-        eg.streamMessage());
+        eg.streamMessage(topic: 'a'));
       await checkOpenNotification(tester,
         eg.selfAccount.copyWith(realmUrl: Uri.parse('http://chat.example')),
-        eg.streamMessage());
+        eg.streamMessage(topic: 'b'));
     }, variant: const TargetPlatformVariant({TargetPlatform.android, TargetPlatform.iOS}));
 
     testWidgets('no accounts', (tester) async {
-      await prepare(tester, withAccount: false);
+      await prepare(tester);
+      // (just to make sure the test is working)
+      check(testBinding.globalStore.accountIds).isEmpty();
       await openNotification(tester, eg.selfAccount, eg.streamMessage());
       await tester.pump();
       check(pushedRoutes.single).isA<DialogRoute<void>>();
@@ -261,10 +306,13 @@ void main() {
         accounts[3], eg.initialSnapshot(realmUsers: [user2]));
       await prepare(tester);
 
-      await checkOpenNotification(tester, accounts[0], eg.streamMessage());
-      await checkOpenNotification(tester, accounts[1], eg.streamMessage());
-      await checkOpenNotification(tester, accounts[2], eg.streamMessage());
       await checkOpenNotification(tester, accounts[3], eg.streamMessage());
+      await checkOpenNotification(tester, accounts[2], eg.streamMessage(),
+        expectHomePageReplaced: true);
+      await checkOpenNotification(tester, accounts[1], eg.streamMessage(),
+        expectHomePageReplaced: true);
+      await checkOpenNotification(tester, accounts[0], eg.streamMessage(),
+        expectHomePageReplaced: true);
     }, variant: const TargetPlatformVariant({TargetPlatform.android, TargetPlatform.iOS}));
 
     testWidgets('wait for app to become ready', (tester) async {
@@ -282,7 +330,7 @@ void main() {
       // Now let the GlobalStore get loaded and the app's main UI get mounted.
       await tester.pump();
       // The navigator first pushes the starting routes…
-      takeStartingRoutes();
+      takeHomePageRouteForAccount(eg.selfAccount.id); // because last-visited
       // … and then the one the notification leads to.
       matchesNavigation(check(pushedRoutes).single, eg.selfAccount, message);
     }, variant: const TargetPlatformVariant({TargetPlatform.android, TargetPlatform.iOS}));
@@ -300,7 +348,7 @@ void main() {
 
       // Once the app is ready, we navigate to the conversation.
       await tester.pump();
-      takeStartingRoutes();
+      takeHomePageRouteForAccount(account.id); // because associated account
       matchesNavigation(check(pushedRoutes).single, account, message);
     }, variant: const TargetPlatformVariant({TargetPlatform.android, TargetPlatform.iOS}));
 
@@ -319,8 +367,170 @@ void main() {
       check(pushedRoutes).isEmpty(); // GlobalStore hasn't loaded yet
 
       await tester.pump();
-      takeStartingRoutes(account: accountB);
+      takeHomePageRouteForAccount(accountB.id); // because associated account
       matchesNavigation(check(pushedRoutes).single, accountB, message);
+    }, variant: const TargetPlatformVariant({TargetPlatform.android, TargetPlatform.iOS}));
+
+    group('from MessageListPage', () {
+      late PerAccountStore store;
+      late FakeApiConnection connection;
+      late NavigatorState navigator;
+
+      Future<void> prepareMessageListPage(WidgetTester tester, {
+        required Narrow narrow,
+        required List<Message> messages,
+      }) async {
+        addTearDown(testBinding.reset);
+        await testBinding.globalStore.add(eg.selfAccount, eg.initialSnapshot());
+        await prepare(tester);
+        store = await testBinding.globalStore.perAccount(eg.selfAccount.id);
+        connection = store.connection as FakeApiConnection;
+
+        navigator = await ZulipApp.navigator;
+        unawaited(navigator.push(MessageListPage.buildRoute(
+          accountId: eg.selfAccount.id,
+          narrow: narrow)));
+        pushedRoutes.clear();
+        connection.prepare(json: eg.newestGetMessagesResult(
+          foundOldest: true, messages: messages).toJson());
+        await tester.pump();
+        await transitionDurationObserver.pumpPastTransition(tester);
+      }
+
+      testWidgets('at same conversation, dedupes page', (tester) async {
+        final stream = eg.stream();
+        final message1 = eg.streamMessage(stream: stream, topic: 'a');
+        await prepareMessageListPage(tester,
+          narrow: TopicNarrow.ofMessage(message1),
+          messages: [message1]);
+
+        final message2 = eg.streamMessage(stream: stream, topic: 'a');
+        await openNotification(tester, eg.selfAccount, message2);
+        check(lastPoppedRoute).isNull();
+        check(pushedRoutes).isEmpty();
+      });
+
+      testWidgets('at different conversation, proceeds normally', (tester) async {
+        final stream = eg.stream();
+        final message1 = eg.streamMessage(stream: stream, topic: 'a');
+        await prepareMessageListPage(tester,
+          narrow: TopicNarrow.ofMessage(message1),
+          messages: [message1]);
+
+        final message2 = eg.streamMessage(stream: stream, topic: 'b');
+        await openNotification(tester, eg.selfAccount, message2);
+        check(lastPoppedRoute).isNull();
+        matchesNavigation(check(pushedRoutes).single, eg.selfAccount, message2);
+      });
+
+      testWidgets('with a different page on top, proceeds normally', (tester) async {
+        final stream = eg.stream();
+        final message1 = eg.streamMessage(stream: stream, topic: 'a');
+        await prepareMessageListPage(tester,
+          narrow: TopicNarrow.ofMessage(message1),
+          messages: [message1]);
+
+        connection.prepare(json: GetChannelTopicsResult(topics: []).toJson());
+        await tester.tap(find.byIcon(ZulipIcons.topics));
+        await tester.pump();
+        check(pushedRoutes.single).isA<WidgetRoute>().page.isA<TopicListPage>();
+        pushedRoutes.clear();
+
+        final message2 = eg.streamMessage(stream: stream, topic: 'a');
+        await openNotification(tester, eg.selfAccount, message2);
+        check(lastPoppedRoute).isNull();
+        matchesNavigation(check(pushedRoutes).single, eg.selfAccount, message2);
+      });
+
+      testWidgets('with a dialog on top, dedupes but clears dialog', (tester) async {
+        final stream = eg.stream();
+        final message1 = eg.streamMessage(stream: stream, topic: 'a');
+        await prepareMessageListPage(tester,
+          narrow: TopicNarrow.ofMessage(message1),
+          messages: [message1]);
+        await store.addStream(stream);
+        await store.addSubscription(eg.subscription(stream));
+        await tester.pump();
+
+        // Produce an error dialog by attempting to send (with an empty compose box).
+        await tester.tap(find.byIcon(ZulipIcons.send));
+        await tester.pump();
+        final pushed = pushedRoutes.single;
+        check(pushed).isA<DialogRoute<Object?>>();
+        pushedRoutes.clear();
+
+        final message2 = eg.streamMessage(stream: stream, topic: 'a');
+        await openNotification(tester, eg.selfAccount, message2);
+        // The dialog was popped (and nothing was pushed).
+        check(lastPoppedRoute).equals(pushed);
+        check(pushedRoutes).isEmpty();
+      });
+    });
+
+    group('changes last visited account', () {
+      testWidgets('app already opened, then notification is opened', (tester) async {
+        addTearDown(testBinding.reset);
+        await testBinding.globalStore.add(
+          eg.selfAccount, eg.initialSnapshot(realmUsers: [eg.selfUser]));
+        await testBinding.globalStore.add(
+          eg.otherAccount, eg.initialSnapshot(realmUsers: [eg.otherUser]),
+          markLastVisited: false);
+        await prepare(tester);
+        check(testBinding.globalStore).lastVisitedAccount.equals(eg.selfAccount);
+
+        await checkOpenNotification(tester, eg.otherAccount, eg.streamMessage(),
+          expectHomePageReplaced: true);
+        check(testBinding.globalStore).lastVisitedAccount.equals(eg.otherAccount);
+      }, variant: const TargetPlatformVariant({TargetPlatform.android, TargetPlatform.iOS}));
+
+      testWidgets('app is opened through notification', (tester) async {
+        addTearDown(testBinding.reset);
+
+        final accountA = eg.selfAccount;
+        final accountB = eg.otherAccount;
+        final message = eg.streamMessage();
+        await testBinding.globalStore.add(accountA, eg.initialSnapshot());
+        await testBinding.globalStore.add(
+          accountB, eg.initialSnapshot(realmUsers: [eg.otherUser]),
+          markLastVisited: false);
+        check(testBinding.globalStore).lastVisitedAccount.equals(accountA);
+        setupNotificationDataForLaunch(tester, accountB, message);
+
+        await prepare(tester, early: true);
+        check(pushedRoutes).isEmpty(); // GlobalStore hasn't loaded yet
+
+        await tester.pump();
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          takeHomePageRouteForAccount(accountA.id); // initial account on launch
+          takeHomePageReplacement(accountB.id); // replaced by associated account
+        } else {
+          // On iOS, associated account is determined early while generating
+          // initial routes. See `_ZulipAppState._handleGenerateInitialRoutes`.
+          takeHomePageRouteForAccount(accountB.id);
+        }
+        matchesNavigation(check(pushedRoutes).single, accountB, message);
+        check(testBinding.globalStore).lastVisitedAccount.equals(accountB);
+      }, variant: const TargetPlatformVariant({TargetPlatform.android, TargetPlatform.iOS}));
+    });
+
+    testWidgets('replaces HomePage when switching account', (tester) async {
+      addTearDown(testBinding.reset);
+      await testBinding.globalStore.add(
+        eg.selfAccount, eg.initialSnapshot(realmUsers: [eg.selfUser]));
+      await testBinding.globalStore.add(
+        eg.otherAccount, eg.initialSnapshot(realmUsers: [eg.otherUser]));
+
+      await prepare(tester);
+
+      // Same account as currently shown -> existing nav stack kept in place.
+      await checkOpenNotification(tester, eg.otherAccount, eg.streamMessage(),
+        expectHomePageReplaced: false);
+      // Different account -> replace HomePage.
+      await checkOpenNotification(tester, eg.selfAccount, eg.streamMessage(topic: 'a'),
+        expectHomePageReplaced: true);
+      // Remain on that different account -> keep the new nav stack in place.
+      await checkOpenNotification(tester, eg.selfAccount, eg.streamMessage(topic: 'b'),
+        expectHomePageReplaced: false);
     }, variant: const TargetPlatformVariant({TargetPlatform.android, TargetPlatform.iOS}));
   });
 

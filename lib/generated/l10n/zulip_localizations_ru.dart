@@ -41,7 +41,7 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   String get settingsPageTitle => 'Настройки';
 
   @override
-  String get switchAccountButton => 'Сменить учетную запись';
+  String get switchAccountButtonTooltip => 'Сменить учетную запись';
 
   @override
   String tryAnotherAccountMessage(Object url) {
@@ -68,6 +68,16 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   String get chooseAccountButtonAddAnAccount => 'Добавить учетную запись';
 
   @override
+  String get navButtonAllChannels => 'Все каналы';
+
+  @override
+  String get allChannelsPageTitle => 'Все каналы';
+
+  @override
+  String get allChannelsEmptyPlaceholderHeader =>
+      'В этой организации нет каналов, которые вы можете просматривать.';
+
+  @override
   String get profileButtonSendDirectMessage => 'Отправить личное сообщение';
 
   @override
@@ -92,7 +102,7 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   String get actionSheetOptionSubscribe => 'Подписаться';
 
   @override
-  String get subscribeFailedTitle => 'Подписаться не удалось';
+  String get subscribeFailedTitle => 'Не удалось подписаться';
 
   @override
   String get actionSheetOptionMarkChannelAsRead =>
@@ -105,7 +115,7 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   String get actionSheetOptionListOfTopics => 'Список тем';
 
   @override
-  String get actionSheetOptionChannelFeed => 'Channel feed';
+  String get actionSheetOptionChannelFeed => 'Лента канала';
 
   @override
   String get actionSheetOptionUnsubscribe => 'Отписаться';
@@ -116,8 +126,8 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   }
 
   @override
-  String get unsubscribeConfirmationDialogMessageMaybeCannotResubscribe =>
-      'Покинув этот канал, возможно, вы не сможете присоединиться вновь.';
+  String get unsubscribeConfirmationDialogMessageCannotResubscribe =>
+      'Если вы покинете этот канал, вы не сможете к нему присоединиться.';
 
   @override
   String get unsubscribeConfirmationDialogConfirmButton => 'Отписаться';
@@ -126,10 +136,22 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   String get unsubscribeFailedTitle => 'Не удалось отписаться';
 
   @override
+  String get actionSheetOptionPinChannel => 'Закрепить';
+
+  @override
+  String get actionSheetOptionUnpinChannel => 'Открепить';
+
+  @override
+  String get errorPinChannelFailedTitle => 'Не удалось закрепить канал';
+
+  @override
+  String get errorUnpinChannelFailedTitle => 'Не удалось открепить канал';
+
+  @override
   String get actionSheetOptionMuteTopic => 'Заглушить тему';
 
   @override
-  String get actionSheetOptionUnmuteTopic => 'Включить оповещения темы';
+  String get actionSheetOptionUnmuteTopic => 'Снять глушение темы';
 
   @override
   String get actionSheetOptionFollowTopic => 'Отслеживать тему';
@@ -141,7 +163,7 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   String get actionSheetOptionResolveTopic => 'Поставить отметку \"решено\"';
 
   @override
-  String get actionSheetOptionUnresolveTopic => 'Снять отметку \"решено\"';
+  String get actionSheetOptionUnresolveTopic => 'Пометить как нерешённое';
 
   @override
   String get errorResolveTopicFailedTitle =>
@@ -239,6 +261,22 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   String get actionSheetOptionEditMessage => 'Редактировать сообщение';
 
   @override
+  String get actionSheetOptionDeleteMessage => 'Удалить сообщение';
+
+  @override
+  String get deleteMessageConfirmationDialogTitle => 'Удалить сообщение?';
+
+  @override
+  String get deleteMessageConfirmationDialogMessage =>
+      'При удалении сообщения оно навсегда пропадет для всех.';
+
+  @override
+  String get deleteMessageConfirmationDialogConfirmButton => 'Удалить';
+
+  @override
+  String get errorDeleteMessageFailedTitle => 'Не удалось удалить сообщение';
+
+  @override
   String get actionSheetOptionMarkTopicAsRead =>
       'Отметить тему как прочитанную';
 
@@ -262,6 +300,10 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   @override
   String get errorCouldNotFetchMessageSource =>
       'Не удалось извлечь источник сообщения.';
+
+  @override
+  String get errorCouldNotAccessUploadedFileTitle =>
+      'Не удалось получить доступ к загруженному файлу';
 
   @override
   String get errorCopyingFailed => 'Сбой копирования';
@@ -368,7 +410,7 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   String get errorMuteTopicFailed => 'Не удалось заглушить тему';
 
   @override
-  String get errorUnmuteTopicFailed => 'Не удалось включить оповещения темы';
+  String get errorUnmuteTopicFailed => 'Не удалось снять глушение темы';
 
   @override
   String get errorFollowTopicFailed => 'Не удалось начать отслеживать тему';
@@ -406,12 +448,34 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   String get successChannelLinkCopied => 'Ссылка на канал скопирована';
 
   @override
-  String get errorBannerDeactivatedDmLabel =>
+  String get composeBoxBannerLabelDeactivatedDmRecipient =>
       'Нельзя отправить сообщение отключенным пользователям.';
 
   @override
-  String get errorBannerCannotPostInChannelLabel =>
+  String get composeBoxBannerLabelUnknownDmRecipient =>
+      'Вы не можете отправлять сообщения неизвестным пользователям.';
+
+  @override
+  String get composeBoxBannerLabelCannotSendUnspecifiedReason =>
+      'Здесь вы не можете отправить сообщение.';
+
+  @override
+  String get composeBoxBannerLabelCannotSendInChannel =>
       'У вас нет права писать в этом канале.';
+
+  @override
+  String get composeBoxBannerLabelUnsubscribed =>
+      'Ответы на ваши сообщения не появятся автоматически.';
+
+  @override
+  String get composeBoxBannerLabelUnsubscribedWhenCannotSend =>
+      'Новые сообщения не будут отображаться автоматически.';
+
+  @override
+  String get composeBoxBannerButtonRefresh => 'Обновить';
+
+  @override
+  String get composeBoxBannerButtonSubscribe => 'Подписаться';
 
   @override
   String get composeBoxBannerLabelEditMessage => 'Редактирование сообщения';
@@ -489,7 +553,7 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   String get composeBoxGroupDmContentHint => 'Сообщение для группы';
 
   @override
-  String get composeBoxSelfDmContentHint => 'Сделать заметку';
+  String get composeBoxSelfDmContentHint => 'Написать себе записку';
 
   @override
   String composeBoxChannelContentHint(String destination) {
@@ -541,6 +605,68 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
 
   @override
   String get emptyMessageList => 'Здесь нет сообщений.';
+
+  @override
+  String get emptyMessageListCombinedFeed =>
+      'В вашей объединенной ленте нет сообщений.';
+
+  @override
+  String get emptyMessageListChannelWithoutContentAccess =>
+      'У вас нет <z-link>доступа к содержимому</z-link> данного канала.';
+
+  @override
+  String get emptyMessageListChannelUnavailable =>
+      'Этого канала нет, или у вас нет к нему доступа.';
+
+  @override
+  String get emptyMessageListSelfDmHeader =>
+      'Вы еще не отправляли себе личные сообщения!';
+
+  @override
+  String get emptyMessageListSelfDmMessage =>
+      'Здесь вы можете делать заметки для себя и тестировать возможности Zulip.';
+
+  @override
+  String emptyMessageListDm(String person) {
+    return 'У вас пока нет личной переписки с пользователем $person.';
+  }
+
+  @override
+  String emptyMessageListDmDeactivatedUser(String person) {
+    return 'У вас нет личной переписки с пользователем $person.';
+  }
+
+  @override
+  String get emptyMessageListDmUnknownUser =>
+      'У вас нет личной переписки с этим пользователем.';
+
+  @override
+  String get emptyMessageListGroupDm =>
+      'У вас пока нет личной переписки с этими пользователями.';
+
+  @override
+  String get emptyMessageListGroupDmDeactivatedUser =>
+      'У вас нет личной переписки с этими пользователями.';
+
+  @override
+  String get emptyMessageListDmStartConversation =>
+      'Почему бы не начать общение?';
+
+  @override
+  String get emptyMessageListMentionsHeader =>
+      'Этот вид показывает сообщения, в которых вас <z-link>упомянули</z-link>.';
+
+  @override
+  String get emptyMessageListMentionsMessage =>
+      'Чтобы привлечь внимание к сообщению, вы можете упомянуть пользователя, группу, участников темы или всех подписчиков канала. Введите @ в поле для ввода текста и выберите из списка подсказок, кого вы хотите упомянуть.';
+
+  @override
+  String get emptyMessageListStarredHeader => 'У вас нет отмеченных сообщений.';
+
+  @override
+  String emptyMessageListStarredMessage(String button) {
+    return '<z-link>Отметка</z-link> звездочкой — это хороший способ отслеживать важные сообщения, такие как задачи, к которым нужно вернуться, или полезные ссылки. Чтобы отметить сообщение, выберите его длинным нажатием, а затем нажмите «$button».';
+  }
 
   @override
   String get emptyMessageListSearch => 'Ничего не найдено.';
@@ -603,6 +729,9 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   String get loginMethodDivider => 'ИЛИ';
 
   @override
+  String get loginMethodDividerSemanticLabel => 'Другие варианты входа';
+
+  @override
   String signInWithFoo(String method) {
     return 'Войти с помощью $method';
   }
@@ -637,8 +766,17 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
       'Пожалуйста, введите ваше имя пользователя.';
 
   @override
-  String get topicValidationErrorTooLong =>
-      'Длина темы не должна превышать 60 символов.';
+  String topicValidationErrorTooLong(int maxLength) {
+    String _temp0 = intl.Intl.pluralLogic(
+      maxLength,
+      locale: localeName,
+      other: '$maxLength символов',
+      many: '$maxLength символов',
+      few: '$maxLength символа',
+      one: '$maxLength символ',
+    );
+    return 'Длина темы не должна превышать $_temp0.';
+  }
 
   @override
   String get topicValidationErrorMandatoryButEmpty =>
@@ -745,6 +883,29 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   @override
   String get errorMarkAsUnreadFailedTitle =>
       'Не удалось снять отметку прочтения';
+
+  @override
+  String markAllAsReadConfirmationDialogTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Отметить $count+ сообщений как прочитанные?',
+      one: 'Отметить $count+ сообщений как прочитанные?',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get markAllAsReadConfirmationDialogTitleNoCount =>
+      'Отметить сообщения как прочитанные?';
+
+  @override
+  String get markAllAsReadConfirmationDialogMessage =>
+      'Это может отразиться на сообщениях во многих беседах.';
+
+  @override
+  String get markAllAsReadConfirmationDialogConfirmButton =>
+      'Отметить как прочитанные';
 
   @override
   String get today => 'Сегодня';
@@ -859,7 +1020,7 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   String get statusTextHint => 'Ваш статус';
 
   @override
-  String get userStatusBusy => 'Занят/а';
+  String get userStatusBusy => 'В делах';
 
   @override
   String get userStatusInAMeeting => 'На встрече';
@@ -896,8 +1057,12 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   String get inboxPageTitle => 'Входящие';
 
   @override
-  String get inboxEmptyPlaceholder =>
-      'Нет непрочитанных входящих сообщений. Используйте кнопки ниже для просмотра объединенной ленты или списка каналов.';
+  String get inboxEmptyPlaceholderHeader =>
+      'У вас нет непрочитанных входящих сообщений.';
+
+  @override
+  String get inboxEmptyPlaceholderMessage =>
+      'Используйте кнопки внизу для просмотра объединенной ленты или списка каналов.';
 
   @override
   String get recentDmConversationsPageTitle => 'Личные сообщения';
@@ -906,8 +1071,12 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   String get recentDmConversationsSectionHeader => 'Личные сообщения';
 
   @override
-  String get recentDmConversationsEmptyPlaceholder =>
-      'У вас пока нет личных сообщений! Почему бы не начать беседу?';
+  String get recentDmConversationsEmptyPlaceholderHeader =>
+      'У вас пока нет личных сообщений!';
+
+  @override
+  String get recentDmConversationsEmptyPlaceholderMessage =>
+      'Почему бы не начать общение?';
 
   @override
   String get combinedFeedPageTitle => 'Объединенная лента';
@@ -922,11 +1091,16 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
   String get channelsPageTitle => 'Каналы';
 
   @override
-  String get channelsEmptyPlaceholder =>
-      'Вы ещё не подписаны ни на один канал.';
+  String get channelsEmptyPlaceholderHeader =>
+      'Вы пока не подписаны ни на один канал.';
 
   @override
-  String get sharePageTitle => 'Поделиться';
+  String channelsEmptyPlaceholderMessage(String allChannelsPageTitle) {
+    return 'Вы можете просмотреть <z-link>$allChannelsPageTitle</z-link> и присоединиться к некоторым из них.';
+  }
+
+  @override
+  String get shareChooseAccountModalTitle => 'Выберите учетную запись';
 
   @override
   String get mainMenuMyProfile => 'Мой профиль';
@@ -1020,6 +1194,9 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
 
   @override
   String get wildcardMentionTopicDescription => 'Оповестить тему';
+
+  @override
+  String get navBarMenuLabel => 'Меню';
 
   @override
   String get messageIsEditedLabel => 'ИЗМЕНЕНО';
@@ -1147,4 +1324,7 @@ class ZulipLocalizationsRu extends ZulipLocalizations {
 
   @override
   String get zulipAppTitle => 'Zulip';
+
+  @override
+  String get topicListEmptyPlaceholderHeader => 'Здесь пока нет тем.';
 }

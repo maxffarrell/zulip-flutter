@@ -35,11 +35,20 @@ import 'text.dart';
 import 'theme.dart';
 import 'topic_list.dart';
 
+/// Show an action sheet with scrollable menu buttons
+/// and an optional scrollable header.
+///
+/// [header] should not use vertical padding to position itself on the sheet.
+/// It will be wrapped in vertical padding
+/// and, if [headerScrollable], a scroll view and an [InsetShadowBox].
 void _showActionSheet(
   BuildContext pageContext, {
   Widget? header,
+  bool headerScrollable = true,
   required List<List<Widget>> buttonSections,
 }) {
+  assert(header is! BottomSheetHeader || !header.outerVerticalPadding);
+
   // Could omit this if we need _showActionSheet outside a per-account context.
   final accountId = PerAccountStoreWidget.accountIdOf(pageContext);
 
@@ -53,6 +62,52 @@ void _showActionSheet(
     isScrollControlled: true,
     builder: (BuildContext _) {
       final designVariables = DesignVariables.of(pageContext);
+
+      Widget? effectiveHeader;
+      if (header != null) {
+        effectiveHeader = headerScrollable
+          ? Flexible(
+              // TODO(upstream) Enforce a flex ratio (e.g. 1:3)
+              //   only when the header height plus the buttons' height
+              //   exceeds available space. Otherwise let one or the other
+              //   grow to fill available space even if it breaks the ratio.
+              //   Needs support for separate properties like `flex-grow`
+              //   and `flex-shrink`.
+              flex: 1,
+              child: InsetShadowBox(
+                top: 8, bottom: 8,
+                color: designVariables.bgContextMenu,
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: header)))
+          : Padding(
+              padding: EdgeInsets.only(top: 16, bottom: 4),
+              child: header);
+      }
+
+      final body = Flexible(
+        flex: (effectiveHeader != null && headerScrollable)
+          ? 3
+          : 1,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(child: InsetShadowBox(
+                top: 8, bottom: 8,
+                color: designVariables.bgContextMenu,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    spacing: 8,
+                    children: buttonSections.map((buttons) =>
+                      MenuButtonsShape(buttons: buttons)).toList())))),
+              const BottomSheetDismissButton(style: BottomSheetDismissButtonStyle.cancel),
+            ])));
+
       return PerAccountStoreWidget(
         accountId: accountId,
         child: Semantics(
@@ -62,43 +117,11 @@ void _showActionSheet(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (header != null)
-                  Flexible(
-                    // TODO(upstream) Enforce a flex ratio (e.g. 1:3)
-                    //   only when the header height plus the buttons' height
-                    //   exceeds available space. Otherwise let one or the other
-                    //   grow to fill available space even if it breaks the ratio.
-                    //   Needs support for separate properties like `flex-grow`
-                    //   and `flex-shrink`.
-                    flex: 1,
-                    child: InsetShadowBox(
-                      top: 8, bottom: 8,
-                      color: designVariables.bgContextMenu,
-                      child: SingleChildScrollView(
-                        padding: EdgeInsets.symmetric(vertical: 8),
-                        child: header)))
+                if (effectiveHeader != null)
+                  effectiveHeader
                 else
                   SizedBox(height: 8),
-                Flexible(
-                  flex: 3,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Flexible(child: InsetShadowBox(
-                          top: 8, bottom: 8,
-                          color: designVariables.bgContextMenu,
-                          child: SingleChildScrollView(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              spacing: 8,
-                              children: buttonSections.map((buttons) =>
-                                MenuButtonsShape(buttons: buttons)).toList())))),
-                        const BottomSheetDismissButton(style: BottomSheetDismissButtonStyle.cancel),
-                      ]))),
+                body,
               ]))));
     });
 }
@@ -114,7 +137,8 @@ typedef WidgetBuilderFromTextStyle = Widget Function(TextStyle);
 /// The "build" params support richer content, such as [TextWithLink],
 /// and the callback is passed a [TextStyle] which is the base style.
 ///
-/// Assumes 8px padding below the top of the bottom sheet.
+/// To add outer vertical padding to position the header on the sheet,
+/// pass true for [outerVerticalPadding].
 ///
 /// Figma; just message no title:
 ///   https://www.figma.com/design/1JTNtYo9memgW7vV6d0ygq/Zulip-Mobile?node-id=3481-26993&m=dev
@@ -133,6 +157,7 @@ class BottomSheetHeader extends StatelessWidget {
     this.buildTitle,
     this.message,
     this.buildMessage,
+    this.outerVerticalPadding = false,
   }) : assert(message == null || buildMessage == null),
        assert(title == null || buildTitle == null),
        assert((message != null || buildMessage != null)
@@ -142,6 +167,7 @@ class BottomSheetHeader extends StatelessWidget {
   final Widget Function(TextStyle)? buildTitle;
   final String? message;
   final Widget Function(TextStyle)? buildMessage;
+  final bool outerVerticalPadding;
 
   @override
   Widget build(BuildContext context) {
@@ -149,15 +175,29 @@ class BottomSheetHeader extends StatelessWidget {
 
     final baseTitleStyle = TextStyle(
       fontSize: 20,
-      height: 20 / 20,
+      // More height than in Figma, but it was looking too tight:
+      //   https://github.com/zulip/zulip-flutter/pull/1877#issuecomment-3379664807
+      // (See use of TextHeightBehavior below.)
+      height: 24 / 20,
       color: designVariables.title,
     ).merge(weightVariableTextStyle(context, wght: 600));
 
-    final effectiveTitle = switch ((buildTitle, title)) {
+    Widget? effectiveTitle = switch ((buildTitle, title)) {
       (final build?, null) => build(baseTitleStyle),
       (null,  final data?) => Text(style: baseTitleStyle, data),
       _                    => null,
     };
+
+    if (effectiveTitle != null) {
+      effectiveTitle = DefaultTextHeightBehavior(
+        textHeightBehavior: TextHeightBehavior(
+          // We want some breathing room between lines,
+          // without adding margin above or below the title.
+          applyHeightToFirstAscent: false,
+          applyHeightToLastDescent: false,
+        ),
+        child: effectiveTitle);
+    }
 
     final baseMessageStyle = TextStyle(
       color: designVariables.labelTime,
@@ -170,12 +210,20 @@ class BottomSheetHeader extends StatelessWidget {
       _                    => null,
     };
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+    Widget result = Padding(
+      padding: EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         spacing: 8,
         children: [?effectiveTitle, ?effectiveMessage]));
+
+    if (outerVerticalPadding) {
+      result = Padding(
+        padding: EdgeInsets.only(top: 16, bottom: 4),
+        child: result);
+    }
+
+    return result;
   }
 }
 
@@ -335,11 +383,15 @@ class DraggableScrollableModalBottomSheet extends StatelessWidget {
 /// (Even if we did live-update the buttons, it's possible anyway that a user's
 /// action can race with a change that's already been applied on the server,
 /// because it takes some time for the server to report changes to us.)
+//
+// When defining button classes (subclasses of this class), try to
+// put definitions in the same order as the buttons appear in the action sheet.
 abstract class ActionSheetMenuItemButton extends StatelessWidget {
   const ActionSheetMenuItemButton({super.key, required this.pageContext});
 
   IconData get icon;
   String label(ZulipLocalizations zulipLocalizations);
+  bool get destructive => false;
 
   /// Called when the button is pressed, after dismissing the action sheet.
   ///
@@ -376,6 +428,9 @@ abstract class ActionSheetMenuItemButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final zulipLocalizations = ZulipLocalizations.of(context);
     return ZulipMenuItemButton(
+      style: destructive
+        ? ZulipMenuItemButtonStyle.menuDestructive
+        : ZulipMenuItemButtonStyle.menu,
       icon: icon,
       label: label(zulipLocalizations),
       onPressed: () => _handlePressed(context),
@@ -452,6 +507,7 @@ void showChannelActionSheet(BuildContext context, {
         && channel != null && store.selfHasContentAccess(channel))
       [SubscribeButton(pageContext: pageContext, channelId: channelId)],
     [
+      // This section has frequent actions, with only short-term effects.
       if (unreadCount > 0)
         MarkChannelAsReadButton(pageContext: pageContext, channelId: channelId),
       if (showTopicListButton)
@@ -460,11 +516,33 @@ void showChannelActionSheet(BuildContext context, {
         ChannelFeedButton(pageContext: pageContext, channelId: channelId),
       CopyChannelLinkButton(channelId: channelId, pageContext: pageContext)
     ],
+    [
+      // This section has settings for the channel or subscription.
+      if (isSubscribed)
+        PinUnpinButton(pageContext: pageContext, channelId: channelId,
+          isPinned: channel.pinToTop),
+      // (It's harmless that this section can be empty; in that case
+      // it ends up rendering to nothing.)
+    ],
     if (isSubscribed)
       [UnsubscribeButton(pageContext: pageContext, channelId: channelId)],
   ];
 
-  _showActionSheet(pageContext, buttonSections: buttonSections);
+  final header = BottomSheetHeader(
+    buildTitle: (baseStyle) => Text.rich(
+      style: baseStyle,
+      channelTopicLabelSpan(
+        context: context,
+        channelId: channelId,
+        fontSize: baseStyle.fontSize!,
+        color: baseStyle.color!)),
+    // TODO(#1896) show channel description
+  );
+
+  _showActionSheet(pageContext,
+    header: header,
+    headerScrollable: false,
+    buttonSections: buttonSections);
 }
 
 class SubscribeButton extends ActionSheetMenuItemButton {
@@ -486,27 +564,7 @@ class SubscribeButton extends ActionSheetMenuItemButton {
 
   @override
   void onPressed() async {
-    final store = PerAccountStoreWidget.of(pageContext);
-    final channel = store.streams[channelId];
-    if (channel == null || channel is Subscription) return; // TODO could give feedback
-
-    try {
-      await subscribeToChannel(store.connection, subscriptions: [channel.name]);
-    } catch (e) {
-      if (!pageContext.mounted) return;
-
-      String? errorMessage;
-      switch (e) {
-        case ZulipApiException():
-          errorMessage = e.message;
-          // TODO(#741) specific messages for common errors, like network errors
-          //   (support with reusable code)
-        default:
-      }
-
-      final title = ZulipLocalizations.of(pageContext).subscribeFailedTitle;
-      showErrorDialog(context: pageContext, title: title, message: errorMessage);
-    }
+    await ZulipAction.subscribeToChannel(pageContext, channelId: channelId);
   }
 }
 
@@ -610,6 +668,57 @@ class CopyChannelLinkButton extends ActionSheetMenuItemButton {
   }
 }
 
+class PinUnpinButton extends ActionSheetMenuItemButton {
+  const PinUnpinButton({
+    super.key,
+    required this.channelId,
+    required this.isPinned,
+    required super.pageContext,
+  });
+
+  final int channelId;
+  final bool isPinned;
+
+  @override
+  IconData get icon => isPinned ? ZulipIcons.pin_remove : ZulipIcons.pin;
+
+  @override
+  String label(ZulipLocalizations zulipLocalizations) {
+    return isPinned
+      ? zulipLocalizations.actionSheetOptionUnpinChannel
+      : zulipLocalizations.actionSheetOptionPinChannel;
+  }
+
+  @override
+  void onPressed() async {
+    try {
+      await updateSubscriptionSettings(
+        PerAccountStoreWidget.of(pageContext).connection,
+        streamId: channelId,
+        property: SubscriptionProperty.pinToTop,
+        value: !isPinned);
+    } catch (e) {
+      if (!pageContext.mounted) return;
+
+      String? errorMessage;
+      switch (e) {
+        case ZulipApiException():
+          errorMessage = e.message;
+          // TODO(#741) specific messages for common errors, like network errors
+          //   (support with reusable code)
+        default:
+      }
+
+      final zulipLocalizations = ZulipLocalizations.of(pageContext);
+      showErrorDialog(context: pageContext,
+        title: isPinned
+          ? zulipLocalizations.errorUnpinChannelFailedTitle
+          : zulipLocalizations.errorPinChannelFailedTitle,
+        message: errorMessage);
+    }
+  }
+}
+
 class UnsubscribeButton extends ActionSheetMenuItemButton {
   const UnsubscribeButton({
     super.key,
@@ -629,44 +738,7 @@ class UnsubscribeButton extends ActionSheetMenuItemButton {
 
   @override
   void onPressed() async {
-    final subscription = PerAccountStoreWidget.of(pageContext).subscriptions[channelId];
-    if (subscription == null) return; // TODO could give feedback
-
-    // TODO(#1786) check group-based permission to subscribe, then replace
-    //   error message with a new one saying "will not" instead of "might not"
-    // TODO(future) check if the self-user is a guest and the channel is not web-public
-    final couldResubscribe = !subscription.inviteOnly;
-    if (!couldResubscribe) {
-      // TODO(#1788) warn if org would lose content access (nobody can subscribe)
-      final zulipLocalizations = ZulipLocalizations.of(pageContext);
-
-      final dialog = showSuggestedActionDialog(context: pageContext,
-        title: zulipLocalizations.unsubscribeConfirmationDialogTitle(subscription.name),
-        message: zulipLocalizations.unsubscribeConfirmationDialogMessageMaybeCannotResubscribe,
-        // TODO(#1032) "destructive" style for action button
-        actionButtonText: zulipLocalizations.unsubscribeConfirmationDialogConfirmButton);
-      if (await dialog.result != true) return;
-      if (!pageContext.mounted) return;
-    }
-
-    try {
-      await unsubscribeFromChannel(PerAccountStoreWidget.of(pageContext).connection,
-        subscriptions: [subscription.name]);
-    } catch (e) {
-      if (!pageContext.mounted) return;
-
-      String? errorMessage;
-      switch (e) {
-        case ZulipApiException():
-          errorMessage = e.message;
-          // TODO(#741) specific messages for common errors, like network errors
-          //   (support with reusable code)
-        default:
-      }
-
-      final title = ZulipLocalizations.of(pageContext).unsubscribeFailedTitle;
-      showErrorDialog(context: pageContext, title: title, message: errorMessage);
-    }
+    await ZulipAction.unsubscribeFromChannel(pageContext, channelId: channelId);
   }
 }
 
@@ -776,7 +848,20 @@ void showTopicActionSheet(BuildContext context, {
     narrow: TopicNarrow(channelId, topic, with_: someMessageIdInTopic),
     pageContext: context));
 
-  _showActionSheet(pageContext, buttonSections: [optionButtons]);
+  final header = BottomSheetHeader(
+    buildTitle: (baseStyle) => Text.rich(
+      style: baseStyle,
+      channelTopicLabelSpan(
+        context: context,
+        channelId: channelId,
+        topic: topic,
+        fontSize: baseStyle.fontSize!,
+        color: baseStyle.color!)));
+
+  _showActionSheet(pageContext,
+    header: header,
+    headerScrollable: false,
+    buttonSections: [optionButtons]);
 }
 
 class UserTopicUpdateButton extends ActionSheetMenuItemButton {
@@ -1025,6 +1110,8 @@ class CopyTopicLinkButton extends ActionSheetMenuItemButton {
 ///
 /// Must have a [MessageListPage] ancestor.
 void showMessageActionSheet({required BuildContext context, required Message message}) {
+  final now = ZulipBinding.instance.utcNow();
+
   final pageContext = PageRoot.contextOf(context);
   final store = PerAccountStoreWidget.of(pageContext);
 
@@ -1044,35 +1131,37 @@ void showMessageActionSheet({required BuildContext context, required Message mes
   final isComposeBoxOffered = messageListPage.composeBoxState != null;
 
   final isMessageRead = message.flags.contains(MessageFlag.read);
-  final markAsUnreadSupported = store.zulipFeatureLevel >= 155; // TODO(server-6)
-  final showMarkAsUnreadButton = markAsUnreadSupported && isMessageRead;
 
   final isSenderMuted = store.isUserMuted(message.senderId);
 
-  final optionButtons = [
-    if (popularEmojiLoaded)
-      ReactionButtons(message: message, pageContext: pageContext),
-    if (hasReactions)
-      ViewReactionsButton(message: message, pageContext: pageContext),
-    if (readReceiptsEnabled)
-      ViewReadReceiptsButton(message: message, pageContext: pageContext),
-    StarButton(message: message, pageContext: pageContext),
-    if (isComposeBoxOffered)
-      QuoteAndReplyButton(message: message, pageContext: pageContext),
-    if (showMarkAsUnreadButton)
-      MarkAsUnreadButton(message: message, pageContext: pageContext),
-    if (isSenderMuted)
-      // The message must have been revealed in order to open this action sheet.
-      UnrevealMutedMessageButton(message: message, pageContext: pageContext),
-    CopyMessageTextButton(message: message, pageContext: pageContext),
-    CopyMessageLinkButton(message: message, pageContext: pageContext),
-    ShareButton(message: message, pageContext: pageContext),
-    if (_getShouldShowEditButton(pageContext, message))
-      EditButton(message: message, pageContext: pageContext),
+  final buttonSections = [
+    [
+      if (popularEmojiLoaded)
+        ReactionButtons(message: message, pageContext: pageContext),
+      if (hasReactions)
+        ViewReactionsButton(message: message, pageContext: pageContext),
+      if (readReceiptsEnabled)
+        ViewReadReceiptsButton(message: message, pageContext: pageContext),
+      StarButton(message: message, pageContext: pageContext),
+      if (isComposeBoxOffered)
+        QuoteAndReplyButton(message: message, pageContext: pageContext),
+      if (isMessageRead)
+        MarkAsUnreadButton(message: message, pageContext: pageContext),
+      if (isSenderMuted)
+        // The message must have been revealed in order to open this action sheet.
+        UnrevealMutedMessageButton(message: message, pageContext: pageContext),
+      CopyMessageTextButton(message: message, pageContext: pageContext),
+      CopyMessageLinkButton(message: message, pageContext: pageContext),
+      ShareButton(message: message, pageContext: pageContext),
+      if (_getShouldShowEditButton(pageContext, message))
+        EditButton(message: message, pageContext: pageContext),
+    ],
+    if (store.selfCanDeleteMessage(message.id, atDate: now))
+      [DeleteMessageButton(message: message, pageContext: pageContext)],
   ];
 
   _showActionSheet(pageContext,
-    buttonSections: [optionButtons],
+    buttonSections: buttonSections,
     header: _MessageActionSheetHeader(message: message));
 }
 
@@ -1136,10 +1225,7 @@ bool _getShouldShowEditButton(BuildContext pageContext, Message message) {
 
   final now = ZulipBinding.instance.utcNow().millisecondsSinceEpoch ~/ 1000;
   final editLimit = store.realmMessageContentEditLimitSeconds;
-  final outsideEditLimit =
-    editLimit != null
-    && editLimit != 0 // TODO(server-6) remove (pre-FL 138, 0 represents no limit)
-    && now - message.timestamp > editLimit;
+  final outsideEditLimit = editLimit != null && now - message.timestamp > editLimit;
 
   return message.senderId == store.selfUserId
     && isComposeBoxOffered
@@ -1210,7 +1296,8 @@ class ReactionButtons extends StatelessWidget {
       onTap: () => _handleTapReaction(emoji: emoji, isSelfVoted: isSelfVoted),
       splashFactory: NoSplash.splashFactory,
       borderRadius: isFirst
-        ? const BorderRadius.only(topLeft: Radius.circular(7))
+        ? const BorderRadiusDirectional.only(topStart: Radius.circular(7))
+            .resolve(Directionality.of(context))
         : null,
       overlayColor: WidgetStateColor.resolveWith((states) =>
         states.any((e) => e == WidgetState.pressed)
@@ -1230,6 +1317,7 @@ class ReactionButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textDirection = Directionality.of(context);
     final store = PerAccountStoreWidget.of(pageContext);
     final popularEmojiCandidates = store.popularEmojiCandidates();
     assert(popularEmojiCandidates.every(
@@ -1266,7 +1354,8 @@ class ReactionButtons extends StatelessWidget {
         InkWell(
           onTap: _handleTapMore,
           splashFactory: NoSplash.splashFactory,
-          borderRadius: const BorderRadius.only(topRight: Radius.circular(7)),
+          borderRadius: const BorderRadiusDirectional.only(
+            topEnd: Radius.circular(7)).resolve(textDirection),
           overlayColor: WidgetStateColor.resolveWith((states) =>
             states.any((e) => e == WidgetState.pressed)
               ? designVariables.contextMenuItemBg.withFadedAlpha(0.20)
@@ -1386,7 +1475,7 @@ class QuoteAndReplyButton extends MessageActionSheetMenuItemButton {
     composeBoxController!;
     if (
       composeBoxController is StreamComposeBoxController
-      && composeBoxController.topic.textNormalized == kNoTopicTopic
+      && composeBoxController.topic.isTopicVacuous
       && message is StreamMessage
     ) {
       composeBoxController.topic.setTopic(message.topic);
@@ -1600,5 +1689,51 @@ class EditButton extends MessageActionSheetMenuItemButton {
       throw StateError('Compose box unexpectedly absent when edit-message button pressed');
     }
     composeBoxState.startEditInteraction(message.id);
+  }
+}
+
+class DeleteMessageButton extends MessageActionSheetMenuItemButton {
+  DeleteMessageButton({super.key, required super.message, required super.pageContext});
+
+  @override
+  IconData get icon => ZulipIcons.trash;
+
+  @override
+  bool get destructive => true;
+
+  @override
+  String label(ZulipLocalizations zulipLocalizations) =>
+    zulipLocalizations.actionSheetOptionDeleteMessage;
+
+  @override void onPressed() async {
+    final zulipLocalizations = ZulipLocalizations.of(pageContext);
+
+    final dialog = showSuggestedActionDialog(context: pageContext,
+      title: zulipLocalizations.deleteMessageConfirmationDialogTitle,
+      message: zulipLocalizations.deleteMessageConfirmationDialogMessage,
+      destructiveActionButton: true,
+      actionButtonText: zulipLocalizations.deleteMessageConfirmationDialogConfirmButton,
+    );
+    if (await dialog.result != true) return;
+    if (!pageContext.mounted) return;
+
+    final connection = PerAccountStoreWidget.of(pageContext).connection;
+    try {
+      await deleteMessage(connection, messageId: message.id);
+    } catch (e) {
+      if (!pageContext.mounted) return;
+
+      String? errorMessage;
+      switch (e) {
+        case ZulipApiException():
+          errorMessage = e.message;
+          // TODO(#741) specific messages for common errors, like network errors
+          //   (support with reusable code)
+        default:
+      }
+
+      final title = ZulipLocalizations.of(pageContext).errorDeleteMessageFailedTitle;
+      showErrorDialog(context: pageContext, title: title, message: errorMessage);
+    }
   }
 }

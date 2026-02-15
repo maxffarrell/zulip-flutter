@@ -7,10 +7,12 @@ import 'package:flutter/foundation.dart';
 
 import '../api/exception.dart';
 import '../api/model/events.dart';
+import '../api/model/initial_snapshot.dart';
 import '../api/model/model.dart';
 import '../api/route/messages.dart';
 import '../log.dart';
 import 'binding.dart';
+import 'channel.dart';
 import 'message_list.dart';
 import 'realm.dart';
 import 'store.dart';
@@ -18,9 +20,12 @@ import 'store.dart';
 const _apiSendMessage = sendMessage; // Bit ugly; for alternatives, see: https://chat.zulip.org/#narrow/stream/243-mobile-team/topic/flutter.3A.20PerAccountStore.20methods/near/1545809
 
 /// The portion of [PerAccountStore] for messages and message lists.
-mixin MessageStore {
+mixin MessageStore on ChannelStore {
   /// All known messages, indexed by [Message.id].
   Map<int, Message> get messages;
+
+  /// All starred messages, as message IDs.
+  Set<int> get starredMessages;
 
   /// [OutboxMessage]s sent by the user, indexed by [OutboxMessage.localMessageId].
   Map<int, OutboxMessage> get outboxMessages;
@@ -32,6 +37,14 @@ mixin MessageStore {
 
   void markReadFromScroll(Iterable<int> messageIds);
 
+  /// Makes a send-message request and starts an outbox lifecycle.
+  ///
+  /// The returned [Future] settles when the send-message response is received.
+  /// The [Future] resolves if the request succeeded and rejects if it failed,
+  /// unless the event already arrived, in which case it resolves.
+  ///
+  /// See [takeOutboxMessage] for a way to restore a composing session
+  /// when it seems like the request might fail, or it has failed.
   Future<void> sendMessage({
     required MessageDestination destination,
     required String content,
@@ -77,6 +90,118 @@ mixin MessageStore {
   /// Should only be called when there is a failed request,
   /// per [getEditMessageErrorStatus].
   ({String originalRawContent, String newContent}) takeFailedMessageEdit(int messageId);
+
+  /// Whether the user has permission to delete a message, as of [atDate].
+  ///
+  /// For a value of [atDate], use [ZulipBinding.instance.utcNow].
+  bool selfCanDeleteMessage(int messageId, {required DateTime atDate}) {
+    // Compare web's message_delete.get_deletability.
+
+    final message = messages[messageId];
+    if (message == null) {
+      assert(false); // TODO(log)
+      return true;
+    }
+
+    final ZulipStream? channel;
+    if (message is StreamMessage) {
+      channel = streams[message.streamId];
+      if (channel == null) {
+        assert(false); // TODO(log)
+        return true;
+      }
+    } else {
+      channel = null;
+    }
+
+    if (channel != null && channel.isArchived) {
+      return false;
+    }
+
+    if (selfHasPermissionForGroupSetting(realmCanDeleteAnyMessageGroup,
+          GroupSettingType.realm, 'can_delete_any_message_group')) {
+      return true;
+    }
+
+    if (channel != null) {
+      if (selfHasPermissionForGroupSetting(channel.canDeleteAnyMessageGroup,
+            GroupSettingType.stream, 'can_delete_any_message_group')) {
+        return true;
+      }
+    }
+
+    final sender = getUser(message.senderId);
+    if (sender == null) return false;
+
+    if (!(
+      sender.userId == selfUserId
+      || (sender.isBot && sender.botOwnerId == selfUserId)
+    )) {
+      return false;
+    }
+
+    // Web returns false here for local-echoed message objects;
+    // that's impossible here because `message` can't be an [OutboxMessage]
+    // (it's a [Message] from [MessageStore.messages]).
+
+    // (selfHasPermissionForGroupSetting isn't equipped to handle the old-server
+    // fallback logic for this specific permission; it's dynamic and depends on
+    // realmDeleteOwnMessagePolicy, so we do our own null check here.)
+    if (realmCanDeleteOwnMessageGroup != null) {
+      if (!selfHasPermissionForGroupSetting(realmCanDeleteOwnMessageGroup!,
+            GroupSettingType.realm, 'can_delete_own_message_group')) {
+        if (channel == null) {
+          // i.e. this is a DM
+          return false;
+        }
+
+        if (!selfHasPermissionForGroupSetting(channel.canDeleteOwnMessageGroup,
+              GroupSettingType.stream, 'can_delete_own_message_group')) {
+          return false;
+        }
+      }
+    } else if (realmDeleteOwnMessagePolicy != null) {
+      if (!_selfPassesLegacyDeleteMessagePolicy(messageId, atDate: atDate)) {
+        return false;
+      }
+    } else {
+      assert(false); // TODO(log)
+      return true;
+    }
+
+    if (realmMessageContentDeleteLimitSeconds == null) {
+      // i.e., no limit
+      return true;
+    }
+    return atDate.millisecondsSinceEpoch ~/ 1000 - message.timestamp
+      <= realmMessageContentDeleteLimitSeconds!;
+  }
+
+  bool _selfPassesLegacyDeleteMessagePolicy(int messageId, {required DateTime atDate}) {
+    assert(realmDeleteOwnMessagePolicy != null);
+    final role = selfUser.role;
+
+    // (Could early-return true on [UserRole.unknown],
+    // but pre-291 servers shouldn't be giving us an unknown role.)
+
+    switch (realmDeleteOwnMessagePolicy!) {
+      case RealmDeleteOwnMessagePolicy.everyone:
+        return true;
+      case RealmDeleteOwnMessagePolicy.members:
+        return role.isAtLeast(UserRole.member);
+      case RealmDeleteOwnMessagePolicy.fullMembers: {
+        if (!role.isAtLeast(UserRole.member)) return false;
+        if (role == UserRole.member) {
+          return selfHasPassedWaitingPeriod(byDate: atDate);
+        }
+        return true;
+      }
+      case RealmDeleteOwnMessagePolicy.moderators:
+        return role.isAtLeast(UserRole.moderator);
+      case RealmDeleteOwnMessagePolicy.admins:
+        return role.isAtLeast(UserRole.administrator);
+    }
+  }
 }
 
 mixin ProxyMessageStore on MessageStore {
@@ -85,6 +210,8 @@ mixin ProxyMessageStore on MessageStore {
 
   @override
   Map<int, Message> get messages => messageStore.messages;
+  @override
+  Set<int> get starredMessages => messageStore.starredMessages;
   @override
   Map<int, OutboxMessage> get outboxMessages => messageStore.outboxMessages;
   @override
@@ -138,14 +265,19 @@ class _EditMessageRequestStatus {
   final String newContent;
 }
 
-class MessageStoreImpl extends HasRealmStore with MessageStore, _OutboxMessageStore {
-  MessageStoreImpl({required super.realm})
-    : // There are no messages in InitialSnapshot, so we don't have
-      // a use case for initializing MessageStore with nonempty [messages].
-      messages = {};
+class MessageStoreImpl extends HasChannelStore with MessageStore, _OutboxMessageStore {
+  MessageStoreImpl({
+    required super.channels,
+    required List<int> initialStarredMessages,
+  }) :
+     messages = {},
+     starredMessages = Set.of(initialStarredMessages);
 
   @override
   final Map<int, Message> messages;
+
+  @override
+  final Set<int> starredMessages;
 
   @override
   final Set<MessageListView> _messageListViews = {};
@@ -286,29 +418,98 @@ class MessageStoreImpl extends HasRealmStore with MessageStore, _OutboxMessageSt
 
   void reconcileMessages(List<Message> messages) {
     assert(!_disposed);
-    // What to do when some of the just-fetched messages are already known?
+    for (int i = 0; i < messages.length; i++) {
+      final message = messages[i];
+
+      // TODO(#649) update Unreads, if [Unreads.oldUnreadsMissing]
+      // TODO(#650) update RecentDmConversationsView
+
+      // It's tempting to update [starredMessages] based on fetched messages,
+      // like Unreads and RecentDmConversationsView.
+      // But we don't need to: per the API doc, InitialSnapshot.starredMessages
+      // is the complete list of starred message IDs. So we can maintain it
+      // using just the event system, avoiding the fetch/event race
+      // as a cause of inaccuracies.
+
+      messages[i] = this.messages.update(message.id,
+        ifAbsent: () => _reconcileUnrecognizedMessage(message),
+        (current) => _reconcileRecognizedMessage(current, message));
+    }
+  }
+
+  Message _reconcileUnrecognizedMessage(Message incoming) {
+    if (
+      incoming is StreamMessage
+      && subscriptions[incoming.streamId] == null
+    ) {
+      // The message is in an unsubscribed channel. It might grow stale;
+      // add it to _maybeStaleChannelMessages.
+      _maybeStaleChannelMessages.add(incoming.id);
+    }
+    return _stripMatchFields(incoming);
+  }
+
+  Message _reconcileRecognizedMessage(Message current, Message incoming) {
+    // This just-fetched message is one we already know about.
     // This is common and normal: in particular it happens when one message list
     // overlaps another, e.g. a stream and a topic within it.
     //
     // Most often, the just-fetched message will look just like the one we
-    // already have.  But they can differ: message fetching happens out of band
-    // from the event queue, so there's inherently a race.
-    //
-    // If the fetched message reflects changes we haven't yet heard from the
-    // event queue, then it doesn't much matter which version we use: we'll
-    // soon get the corresponding events and apply the changes anyway.
-    // But if it lacks changes we've already heard from the event queue, then
-    // we won't hear those events again; the only way to wind up with an
-    // updated message is to use the version we have, that already reflects
-    // those events' changes.  So we always stick with the version we have.
-    for (int i = 0; i < messages.length; i++) {
-      final message = messages[i];
-      messages[i] = this.messages.putIfAbsent(message.id, () {
-        message.matchContent = null;
-        message.matchTopic = null;
-        return message;
-      });
+    // already have. But not always, and we can choose intelligently whether
+    // to keep the stored version or clobber it with the incoming one.
+
+    bool currentIsMaybeStale = false;
+    if (incoming is StreamMessage) {
+      if (subscriptions[incoming.streamId] != null) {
+        // The incoming version won't grow stale; it's in a subscribed channel.
+        // Remove it from _maybeStaleChannelMessages if it was there.
+        currentIsMaybeStale = _maybeStaleChannelMessages.remove(incoming.id);
+      } else {
+        assert(_maybeStaleChannelMessages.contains(incoming.id));
+        currentIsMaybeStale = true;
+      }
     }
+
+    if (currentIsMaybeStale) {
+      // The event queue is unreliable for this message; the message was in an
+      // unsubscribed channel when we stored it or sometime since, so the stored
+      // version might be stale. Refresh it with the fetched version.
+      return _stripMatchFields(incoming);
+    } else {
+      // Message fetching happens out of band from the event queue, so there's
+      // inherently a race.
+      //
+      // If the fetched message reflects changes we haven't yet heard from the
+      // event queue, then it doesn't much matter which version we use: we'll
+      // soon get the corresponding events and apply the changes anyway.
+      // But if it lacks changes we've already heard from the event queue, then
+      // we won't hear those events again; the only way to wind up with an
+      // updated message is to use the version we have, that already reflects
+      // those events' changes.  So, stick with the version we have.
+      return current;
+    }
+  }
+
+  /// Messages in [messages] whose data stream is or was presumably broken
+  /// by the message being in an unsubscribed channel.
+  ///
+  /// This is the subset of [messages] where the message was
+  /// in an unsubscribed channel when we added it or sometime since.
+  ///
+  /// We don't expect update events for messages in unsubscribed channels,
+  /// so if some of these maybe-stale messages appear in a fetch,
+  /// we'll always clobber our stored version with the fetched version.
+  /// See [reconcileMessages].
+  ///
+  /// (We have seen a few such events, actually --
+  /// maybe because the channel only recently became unsubscribed? --
+  /// but not consistently, and we're not supposed to rely on them.)
+  final Set<int> _maybeStaleChannelMessages = {};
+
+  Message _stripMatchFields(Message message) {
+    message.matchContent = null;
+    message.matchTopic = null;
+    return message;
   }
 
   @override
@@ -339,7 +540,8 @@ class MessageStoreImpl extends HasRealmStore with MessageStore, _OutboxMessageSt
         content: newContent,
         prevContentSha256: sha256.convert(utf8.encode(originalRawContent)).toString());
       // On success, we'll clear the status from _editMessageRequests
-      // when we get the event.
+      // when we get the event (or below, if in an unsubscribed channel).
+      if (_disposed) return;
     } catch (e) {
       // TODO(log) if e is something unexpected
 
@@ -355,6 +557,19 @@ class MessageStoreImpl extends HasRealmStore with MessageStore, _OutboxMessageSt
       status.hasError = true;
       _notifyMessageListViewsForOneMessage(messageId);
       rethrow;
+    }
+
+    final message = messages[messageId];
+    if (message is StreamMessage && subscriptions[message.streamId] == null) {
+      // The message is in an unsubscribed channel.
+      // We don't expect an event (see "third buggy behavior" in #1798)
+      // but we know the edit request succeeded, so, clear the pending-edit state.
+      // We simultaneously reload the affected message lists from scratch, so
+      // the user won't see a state where the edit appears to be forgotten.
+      // (See _EditMessageBannerTrailing._handleTapSave in
+      // lib/widgets/compose_box.dart.)
+      _editMessageRequests.remove(messageId);
+      _notifyMessageListViewsForOneMessage(messageId);
     }
   }
 
@@ -375,6 +590,29 @@ class MessageStoreImpl extends HasRealmStore with MessageStore, _OutboxMessageSt
     );
   }
 
+  void handleChannelDeleteEvent(ChannelDeleteEvent event) {
+    _handleSubscriptionsRemoved(event.channelIds);
+  }
+
+  void handleSubscriptionRemoveEvent(SubscriptionRemoveEvent event) {
+    _handleSubscriptionsRemoved(event.streamIds);
+  }
+
+  void _handleSubscriptionsRemoved(Iterable<int> channelIds) {
+    if (channelIds.length > 8) {
+      assert(channelIds is! Set);
+      // optimization: https://github.com/zulip/zulip-flutter/pull/1912#discussion_r2479350329
+      channelIds = Set.from(channelIds);
+    }
+
+    // Linear in [messages].
+    final affectedKnownMessageIds = messages.values
+      .where((message) => message is StreamMessage && channelIds.contains(message.streamId))
+      .map((message) => message.id);
+
+    _maybeStaleChannelMessages.addAll(affectedKnownMessageIds);
+  }
+
   void handleUserTopicEvent(UserTopicEvent event) {
     for (final view in _messageListViews) {
       view.handleUserTopicEvent(event);
@@ -388,10 +626,25 @@ class MessageStoreImpl extends HasRealmStore with MessageStore, _OutboxMessageSt
   }
 
   void handleMessageEvent(MessageEvent event) {
+    final message = event.message;
+
+    if (message.flags.contains(MessageFlag.starred)) { // TODO(log)
+      // It would be surprising if a newly-sent message could be starred.
+      // (I notice that the send-message endpoint doesn't offer a way to
+      // set the starred flag.)
+      // If it turns out to be possible, we should update [starredMessages].
+    }
+
     // If the message is one we already know about (from a fetch),
     // clobber it with the one from the event system.
-    // See [fetchedMessages] for reasoning.
-    messages[event.message.id] = event.message;
+    // See [reconcileMessages] for reasoning.
+    messages[message.id] = message;
+
+    if (message is StreamMessage && subscriptions[message.streamId] == null) {
+      // We didn't expect this event, because the channel is unsubscribed. But
+      // that doesn't mean we should expect future events about this message.
+      _maybeStaleChannelMessages.add(message.id);
+    }
 
     _handleMessageEventOutbox(event);
 
@@ -480,6 +733,12 @@ class MessageStoreImpl extends HasRealmStore with MessageStore, _OutboxMessageSt
         // See [StreamConversation.displayRecipient] on why the invalidation is
         // needed.
         message.conversation.displayRecipient = null;
+
+        if (subscriptions[newStreamId] == null) {
+          // The message was moved into an unsubscribed channel, which means
+          // we expect our data on it to get stale.
+          _maybeStaleChannelMessages.add(messageId);
+        }
       }
 
       if (newTopic != origTopic) {
@@ -499,17 +758,25 @@ class MessageStoreImpl extends HasRealmStore with MessageStore, _OutboxMessageSt
     }
   }
 
-  void handleDeleteMessageEvent(DeleteMessageEvent event) {
+  /// Handle a [DeleteMessageEvent]
+  /// and return true if the [PerAccountStore] should notify listeners.
+  bool handleDeleteMessageEvent(DeleteMessageEvent event) {
+    bool perAccountStoreShouldNotify = false;
     for (final messageId in event.messageIds) {
       messages.remove(messageId);
+      perAccountStoreShouldNotify |= starredMessages.remove(messageId);
+      _maybeStaleChannelMessages.remove(messageId);
       _editMessageRequests.remove(messageId);
     }
     for (final view in _messageListViews) {
       view.handleDeleteMessageEvent(event);
     }
+    return perAccountStoreShouldNotify;
   }
 
-  void handleUpdateMessageFlagsEvent(UpdateMessageFlagsEvent event) {
+  /// Handle an [UpdateMessageFlagsEvent]
+  /// and return true if the [PerAccountStore] should notify listeners.
+  bool handleUpdateMessageFlagsEvent(UpdateMessageFlagsEvent event) {
     final isAdd = switch (event) {
       UpdateMessageFlagsAddEvent()    => true,
       UpdateMessageFlagsRemoveEvent() => false,
@@ -517,7 +784,9 @@ class MessageStoreImpl extends HasRealmStore with MessageStore, _OutboxMessageSt
 
     if (isAdd && (event as UpdateMessageFlagsAddEvent).all) {
       for (final message in messages.values) {
-        message.flags.add(event.flag);
+        if (!message.flags.contains(event.flag)) {
+          message.flags.add(event.flag);
+        }
       }
 
       for (final view in _messageListViews) {
@@ -531,9 +800,13 @@ class MessageStoreImpl extends HasRealmStore with MessageStore, _OutboxMessageSt
         if (message == null) continue; // a message we don't know about yet
         anyMessageFound = true;
 
-        isAdd
-          ? message.flags.add(event.flag)
-          : message.flags.remove(event.flag);
+        if (isAdd) {
+          if (!message.flags.contains(event.flag)) {
+            message.flags.add(event.flag);
+          }
+        } else {
+          message.flags.remove(event.flag);
+        }
       }
       if (anyMessageFound) {
         // TODO(#818): Support MentionsNarrow live-updates when handling
@@ -547,6 +820,15 @@ class MessageStoreImpl extends HasRealmStore with MessageStore, _OutboxMessageSt
         _notifyMessageListViews(event.messages);
       }
     }
+
+    if (event.flag == MessageFlag.starred) {
+      isAdd
+        ? starredMessages.addAll(event.messages)
+        : starredMessages.removeAll(event.messages);
+      return true;
+    }
+
+    return false;
   }
 
   void handleReactionEvent(ReactionEvent event) {
@@ -670,13 +952,18 @@ const kSendMessageOfferRestoreWaitPeriod = Duration(seconds: 10);  // TODO(#1441
 ///         timed out.   not finished when
 ///                      wait period timed out.
 ///
-///              Event received.
-/// (any state) ─────────────────► (delete)
+///              Event received.  Or [sendMessage]
+///              request succeeds and we're sending to
+///              an unsubscribed channel.
+/// (any state) ───────────────────────────────────────► (delete)
 /// ```
 ///
 /// During its lifecycle, it is guaranteed that the outbox message is deleted
 /// as soon a message event with a matching [MessageEvent.localMessageId]
 /// arrives.
+/// If we're sending to an unsubscribed channel, we don't expect an event
+/// (see "third buggy behavior" in #1798) so in that case
+/// the outbox message is deleted when the [sendMessage] request succeeds.
 enum OutboxMessageState {
   /// The [sendMessage] HTTP request has started but the resulting
   /// [MessageEvent] hasn't arrived, and nor has the request failed.  In this
@@ -799,7 +1086,7 @@ class DmOutboxMessage extends OutboxMessage<DmConversation> {
 }
 
 /// Manages the outbox messages portion of [MessageStore].
-mixin _OutboxMessageStore on HasRealmStore {
+mixin _OutboxMessageStore on HasChannelStore {
   late final UnmodifiableMapView<int, OutboxMessage> outboxMessages =
     UnmodifiableMapView(_outboxMessages);
   final Map<int, OutboxMessage> _outboxMessages = {};
@@ -929,6 +1216,22 @@ mixin _OutboxMessageStore on HasRealmStore {
       // The message event already arrived; nothing to do.
       return;
     }
+
+    if (destination is StreamDestination && subscriptions[destination.streamId] == null) {
+      // We don't expect an event (we're sending to an unsubscribed channel);
+      // clear the loading spinner.
+      // We simultaneously reload the affected message lists from scratch, so
+      // the user won't see a state where the message appears to have vanished.
+      // (See _SendButtonState._send in lib/widgets/compose_box.dart.)
+      _outboxMessages.remove(localMessageId);
+      _outboxMessageDebounceTimers.remove(localMessageId)?.cancel();
+      _outboxMessageWaitPeriodTimers.remove(localMessageId)?.cancel();
+      for (final view in _messageListViews) {
+        view.notifyListenersIfOutboxMessagePresent(localMessageId);
+      }
+      return;
+    }
+
     // The send request succeeded, so the message was definitely sent.
     // Cancel the timer that would have had us start presuming that the
     // send might have failed.

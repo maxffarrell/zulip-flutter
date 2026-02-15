@@ -2,16 +2,19 @@ import 'package:flutter/material.dart';
 
 import '../api/model/model.dart';
 import '../generated/l10n/zulip_localizations.dart';
+import '../model/channel.dart';
 import '../model/narrow.dart';
 import '../model/unreads.dart';
 import 'action_sheet.dart';
+import 'all_channels.dart';
+import 'button.dart';
 import 'icons.dart';
 import 'message_list.dart';
 import 'page.dart';
 import 'store.dart';
 import 'text.dart';
 import 'theme.dart';
-import 'unread_count_badge.dart';
+import 'counter_badge.dart';
 
 typedef OnChannelSelectCallback = void Function(ChannelNarrow narrow);
 
@@ -20,7 +23,8 @@ class SubscriptionListPageBody extends StatefulWidget {
   const SubscriptionListPageBody({
     super.key,
     this.showTopicListButtonInActionSheet = true,
-    this.hideChannelsIfUserCantPost = false,
+    this.hideChannelsIfUserCantSendMessage = false,
+    this.allowGoToAllChannels = true,
     this.onChannelSelect,
   });
 
@@ -30,7 +34,8 @@ class SubscriptionListPageBody extends StatefulWidget {
   //   See discussion:
   //     https://github.com/zulip/zulip-flutter/pull/1774#discussion_r2249032503
   final bool showTopicListButtonInActionSheet;
-  final bool hideChannelsIfUserCantPost;
+  final bool hideChannelsIfUserCantSendMessage;
+  final bool allowGoToAllChannels;
 
   /// Callback to invoke when the user selects a channel from the list.
   ///
@@ -66,27 +71,12 @@ class _SubscriptionListPageBodyState extends State<SubscriptionListPageBody> wit
     });
   }
 
-  // TODO(linter): The linter incorrectly flags the following regexp string
-  //    as invalid. See: https://github.com/dart-lang/sdk/issues/61246
-  // ignore: valid_regexps
-  static final _startsWithEmojiRegex = RegExp(r'^\p{Emoji}', unicode: true);
-
   void _sortSubs(List<Subscription> list) {
     list.sort((a, b) {
       if (a.isMuted && !b.isMuted) return 1;
       if (!a.isMuted && b.isMuted) return -1;
 
-      // A user gave feedback wanting zulip-flutter to match web in putting
-      // emoji-prefixed channels first; see #1202.
-      // For matching web's ordering completely, see:
-      //   https://github.com/zulip/zulip-flutter/issues/1165
-      final aStartsWithEmoji = _startsWithEmojiRegex.hasMatch(a.name);
-      final bStartsWithEmoji = _startsWithEmojiRegex.hasMatch(b.name);
-      if (aStartsWithEmoji && !bStartsWithEmoji) return -1;
-      if (!aStartsWithEmoji && bStartsWithEmoji) return 1;
-
-      // TODO(i18n): add locale-aware sorting
-      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      return ChannelStore.compareChannelsByName(a, b);
     });
   }
 
@@ -118,13 +108,20 @@ class _SubscriptionListPageBodyState extends State<SubscriptionListPageBody> wit
     final store = PerAccountStoreWidget.of(context);
     final zulipLocalizations = ZulipLocalizations.of(context);
 
+    final includeAllChannelsButton = widget.allowGoToAllChannels
+      // See Help Center doc:
+      //   https://zulip.com/help/configure-who-can-subscribe
+      // > Guests can never subscribe themselves to a channel.
+      // (Web also hides the corresponding link for guests;
+      // see web/templates/left_sidebar.hbs.)
+      && store.selfUser.role.isAtLeast(UserRole.member);
+
     final List<Subscription> pinned = [];
     final List<Subscription> unpinned = [];
     final now = DateTime.now();
     for (final subscription in store.subscriptions.values) {
-      if (widget.hideChannelsIfUserCantPost) {
-        if (!store.hasPostingPermission(inChannel: subscription,
-              user: store.selfUser, byDate: now)) {
+      if (widget.hideChannelsIfUserCantSendMessage) {
+        if (!store.selfCanSendMessage(inChannel: subscription, byDate: now)) {
           continue;
         }
       }
@@ -138,9 +135,18 @@ class _SubscriptionListPageBodyState extends State<SubscriptionListPageBody> wit
     _sortSubs(unpinned);
 
     if (pinned.isEmpty && unpinned.isEmpty) {
-      return PageBodyEmptyContentPlaceholder(
-        // TODO(#188) add e.g. "Go to 'All channels' and join some of them."
-        message: zulipLocalizations.channelsEmptyPlaceholder);
+      if (includeAllChannelsButton) {
+        return PageBodyEmptyContentPlaceholder(
+          header: zulipLocalizations.channelsEmptyPlaceholderHeader,
+          messageWithLinkMarkup:
+            zulipLocalizations.channelsEmptyPlaceholderMessage(
+              zulipLocalizations.allChannelsPageTitle),
+          onTapMessageLink: () => Navigator.push(context,
+            AllChannelsPage.buildRoute(context: context)));
+      } else {
+        return PageBodyEmptyContentPlaceholder(
+          header: zulipLocalizations.channelsEmptyPlaceholderHeader);
+      }
     }
 
     return SafeArea(
@@ -174,7 +180,19 @@ class _SubscriptionListPageBodyState extends State<SubscriptionListPageBody> wit
               onChannelSelect: _handleChannelSelect),
           ],
 
-          // TODO(#188): add button leading to "All Streams" page with ability to subscribe
+          if (includeAllChannelsButton) ...[
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+              sliver: SliverToBoxAdapter(
+                child: MenuButtonsShape(buttons: [
+                  ZulipMenuItemButton(
+                    style: ZulipMenuItemButtonStyle.menu,
+                    label: zulipLocalizations.navButtonAllChannels,
+                    icon: ZulipIcons.chevron_right,
+                    onPressed: () => Navigator.push(context,
+                      AllChannelsPage.buildRoute(context: context))),
+                ]))),
+          ],
 
           // This ensures last item in scrollable can settle in an unobstructed area.
           // (Noop in the home-page case; see comment on `bottom: false` arg in
@@ -318,10 +336,10 @@ class SubscriptionItem extends StatelessWidget {
             // TODO(#747) show @-mention indicator when it applies
             Opacity(
               opacity: opacity,
-              child: UnreadCountBadge(
+              child: CounterBadge(
+                kind: CounterBadgeKind.unread,
                 count: unreadCount,
-                backgroundColor: swatch,
-                bold: true)),
+                channelIdForBackground: subscription.streamId)),
           ] else if (showMutedUnreadBadge) ...[
             const SizedBox(width: 12),
             // TODO(#747) show @-mention indicator when it applies

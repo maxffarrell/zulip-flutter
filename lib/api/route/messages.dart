@@ -121,9 +121,6 @@ class GetMessagesResult {
   Map<String, dynamic> toJson() => _$GetMessagesResultToJson(this);
 }
 
-// https://zulip.com/api/send-message#parameter-topic
-const int kMaxTopicLengthCodePoints = 60;
-
 // https://zulip.com/api/send-message#parameter-content
 const int kMaxMessageLengthCodePoints = 10000;
 
@@ -250,6 +247,14 @@ class UpdateMessageResult {
   Map<String, dynamic> toJson() => _$UpdateMessageResultToJson(this);
 }
 
+/// https://zulip.com/api/delete-message
+Future<void> deleteMessage(
+  ApiConnection connection, {
+  required int messageId,
+}) {
+  return connection.delete('deleteMessage', (_) {}, 'messages/$messageId', {});
+}
+
 /// https://zulip.com/api/upload-file
 Future<UploadFileResult> uploadFile(
   ApiConnection connection, {
@@ -275,6 +280,29 @@ class UploadFileResult {
     _$UploadFileResultFromJson(json);
 
   Map<String, dynamic> toJson() => _$UploadFileResultToJson(this);
+}
+
+/// https://zulip.com/api/get-file-temporary-url
+Future<GetFileTemporaryUrlResult> getFileTemporaryUrl(ApiConnection connection, {
+  required int realmId,
+  required String filename,
+}) {
+  return connection.get('getFileTemporaryUrl', GetFileTemporaryUrlResult.fromJson,
+    'user_uploads/$realmId/$filename', {});
+}
+
+@JsonSerializable(fieldRename: FieldRename.snake)
+class GetFileTemporaryUrlResult {
+  final String url;
+
+  GetFileTemporaryUrlResult({
+    required this.url,
+  });
+
+  factory GetFileTemporaryUrlResult.fromJson(Map<String, dynamic> json) =>
+    _$GetFileTemporaryUrlResultFromJson(json);
+
+  Map<String, dynamic> toJson() => _$GetFileTemporaryUrlResultToJson(this);
 }
 
 /// https://zulip.com/api/add-reaction

@@ -14,7 +14,7 @@ import 'package:zulip/model/localizations.dart';
 import 'package:zulip/model/narrow.dart';
 import 'package:zulip/model/store.dart';
 import 'package:zulip/widgets/app.dart';
-import 'package:zulip/widgets/content.dart';
+import 'package:zulip/widgets/image.dart';
 import 'package:zulip/widgets/lightbox.dart';
 import 'package:zulip/widgets/message_list.dart';
 import 'package:zulip/widgets/user.dart';
@@ -212,7 +212,7 @@ void main() {
 
     final channel = eg.stream();
     final message = eg.streamMessage(stream: channel,
-      topic: 'test topic', contentMarkdown: ContentExample.imageSingle.html);
+      topic: 'test topic', contentMarkdown: ContentExample.imagePreviewSingle.html);
 
     // From ContentExample.imageSingle.
     final imageSrcUrlStr = 'https://chat.example/user_uploads/thumbnail/2/ce/nvoNL2LaZOciwGZ-FYagddtK/image.jpg/840x560.webp';

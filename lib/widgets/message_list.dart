@@ -15,6 +15,7 @@ import '../model/message_list.dart';
 import '../model/narrow.dart';
 import '../model/store.dart';
 import '../model/typing_status.dart';
+import '../model/unreads.dart';
 import 'action_sheet.dart';
 import 'actions.dart';
 import 'app_bar.dart';
@@ -137,6 +138,17 @@ abstract class MessageListPageState extends State<MessageListPage> {
   /// The narrow for this page's message list.
   Narrow get narrow;
 
+  /// Resets the [MessageListView] model, triggering an initial fetch.
+  ///
+  /// If [anchor] isn't passed, reuses the anchor from the last initial fetch.
+  ///
+  /// Useful when updates won't arrive through the event system,
+  /// as when showing an unsubscribed channel.
+  /// (New-message events aren't sent for unsubscribed channels.)
+  ///
+  /// Does nothing if [MessageList] has not mounted yet.
+  void refresh([Anchor? anchor]);
+
   /// The [ComposeBoxState] for this [MessageListPage]'s compose box,
   /// if this [MessageListPage] offers a compose box and it has mounted,
   /// else null.
@@ -185,6 +197,41 @@ class MessageListPage extends StatefulWidget {
         key: key,
         initNarrow: narrow,
         initAnchorMessageId: initAnchorMessageId));
+  }
+
+  /// The [MessageListPageState] for the page at the given route.
+  ///
+  /// The route must be a [WidgetRoute] for [MessageListPage].
+  ///
+  /// Null if the route is not mounted in the widget tree.
+  static MessageListPageState? stateOfRoute(Route<void> route) {
+    if (!(route is WidgetRoute && route.page is MessageListPage)) {
+      assert(false, 'MessageListPage.stateOfRoute expects a MessageListPage route');
+      return null;
+    }
+    final element = route.pageElement;
+    if (element == null) return null;
+    assert(element.widget == route.page);
+
+    return (element as StatefulElement).state as MessageListPageState;
+  }
+
+  /// The current narrow, as updated, for the given [MessageListPage] route.
+  ///
+  /// The route must be a [WidgetRoute] for [MessageListPage].
+  ///
+  /// This uses [MessageListPageState.narrow] to take into account any updates
+  /// that have happened since the route was navigated to.
+  static Narrow currentNarrow(Route<void> route) {
+    final state = stateOfRoute(route);
+    if (state == null) {
+      // The page is not yet mounted.  Either the route has not yet been
+      // navigated to, or there hasn't yet been a new frame since it was.
+      // Either way, there's been no change to its narrow.
+      return ((route as WidgetRoute).page as MessageListPage).initNarrow;
+    }
+    // The page is mounted, and may have changed its narrow.
+    return state.narrow;
   }
 
   /// The "revealed" state of a message from a muted sender,
@@ -266,6 +313,14 @@ class MessageListPage extends StatefulWidget {
 class _MessageListPageState extends State<MessageListPage> implements MessageListPageState {
   @override
   late Narrow narrow;
+
+  @override
+  void refresh([Anchor? anchor]) {
+    // TODO If anchor isn't passed, check if there's some onscreen message
+    //   we can anchor to, before defaulting to model.anchor.
+    //   Update the dartdoc on this method with the new behavior.
+    model?.renarrowAndFetch(narrow, anchor ?? model!.anchor);
+  }
 
   @override
   ComposeBoxState? get composeBoxState => _composeBoxKey.currentState;
@@ -639,7 +694,8 @@ class MessageListAppBarTitle extends StatelessWidget {
       case KeywordSearchNarrow():
         assert(!willCenterTitle);
         return _SearchBar(onSubmitted: (narrow) {
-          MessageListPage.ancestorOf(context).model!.renarrowAndFetch(narrow);
+          MessageListPage.ancestorOf(context).model!
+            .renarrowAndFetch(narrow, AnchorCode.newest);
         });
     }
   }
@@ -1007,19 +1063,10 @@ class _MessageListState extends State<MessageList> with PerAccountStoreAwareStat
 
   @override
   Widget build(BuildContext context) {
-    final zulipLocalizations = ZulipLocalizations.of(context);
-
     if (!model.fetched) return const Center(child: CircularProgressIndicator());
 
     if (model.items.isEmpty && model.haveNewest && model.haveOldest) {
-      final String message;
-      if (widget.narrow is KeywordSearchNarrow) {
-        message = zulipLocalizations.emptyMessageListSearch;
-      } else {
-        message = zulipLocalizations.emptyMessageList;
-      }
-
-      return PageBodyEmptyContentPlaceholder(message: message);
+      return _EmptyMessageListPlaceholder(narrow: widget.narrow);
     }
 
     // Pad the left and right insets, for small devices in landscape.
@@ -1042,9 +1089,9 @@ class _MessageListState extends State<MessageList> with PerAccountStoreAwareStat
             child: Stack(
               children: <Widget>[
                 _buildListView(context),
-                Positioned(
+                PositionedDirectional(
                   bottom: 0,
-                  right: 0,
+                  end: 0,
                   // TODO(#311) SafeArea shouldn't be needed if we have a
                   //   bottom nav; that will pad the bottom inset. Remove it,
                   //   and the mention of bottom-inset handling in
@@ -1069,7 +1116,7 @@ class _MessageListState extends State<MessageList> with PerAccountStoreAwareStat
 
     // The top sliver has its child 0 as the item just before the
     // sliver boundary, child 1 as the item before that, and so on.
-    final topSliver = SliverStickyHeaderList(
+    Widget topSliver = SliverStickyHeaderList(
       headerPlacement: HeaderPlacement.scrollingStart,
       delegate: SliverChildBuilderDelegate(
         // To preserve state across rebuilds for individual [MessageItem]
@@ -1148,6 +1195,15 @@ class _MessageListState extends State<MessageList> with PerAccountStoreAwareStat
       // TODO(#311) If we have a bottom nav, it will pad the bottom inset,
       //   and this can be removed; also remove mention in MessageList dartdoc
       bottomSliver = SliverSafeArea(key: bottomSliver.key, sliver: bottomSliver);
+      topSliver = MediaQuery.removePadding(context: context,
+        // In the top sliver, forget the bottom inset;
+        // we're having the bottom sliver take care of it.
+        removeBottom: true,
+        // (Also forget the left and right insets; the outer SafeArea, above,
+        // does that, but the `context` we're passing to this `removePadding`
+        // is from outside that SafeArea, so we need to repeat it.)
+        removeLeft: true, removeRight: true,
+        child: topSliver);
     }
 
     return MessageListScrollView(
@@ -1232,6 +1288,98 @@ class _MessageListState extends State<MessageList> with PerAccountStoreAwareStat
           header: header,
           isLastInFeed: isLastInFeed,
           item: data);
+    }
+  }
+}
+
+class _EmptyMessageListPlaceholder extends StatelessWidget {
+  const _EmptyMessageListPlaceholder({required this.narrow});
+
+  final Narrow narrow;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = PerAccountStoreWidget.of(context);
+    final zulipLocalizations = ZulipLocalizations.of(context);
+
+    switch (narrow) {
+      case CombinedFeedNarrow():
+        return PageBodyEmptyContentPlaceholder(
+          header: zulipLocalizations.emptyMessageListCombinedFeed);
+
+      case ChannelNarrow(:final streamId) || TopicNarrow(:final streamId):
+        final channel = store.streams[streamId];
+        if (channel == null) {
+          return PageBodyEmptyContentPlaceholder(
+            header: zulipLocalizations.emptyMessageListChannelUnavailable);
+        } else if (!store.selfHasContentAccess(channel)) {
+          return PageBodyEmptyContentPlaceholder(
+            headerWithLinkMarkup: zulipLocalizations.emptyMessageListChannelWithoutContentAccess,
+            onTapHeaderLink: () => PlatformActions.launchUrl(context,
+              store.tryResolveUrl('/help/channel-permissions')!));
+        } else {
+          return PageBodyEmptyContentPlaceholder(
+            header: zulipLocalizations.emptyMessageList);
+        }
+
+      case DmNarrow(:final otherRecipientIds) when otherRecipientIds.isEmpty:
+        return PageBodyEmptyContentPlaceholder(
+          header: zulipLocalizations.emptyMessageListSelfDmHeader,
+          message: zulipLocalizations.emptyMessageListSelfDmMessage);
+
+      case DmNarrow(:final otherRecipientIds) when otherRecipientIds.length == 1:
+        final user = store.getUser(otherRecipientIds.single);
+        switch (user) {
+          case null:
+            return PageBodyEmptyContentPlaceholder(
+              header: zulipLocalizations.emptyMessageListDmUnknownUser);
+          case User(isActive: false):
+            return PageBodyEmptyContentPlaceholder(
+              header: zulipLocalizations.emptyMessageListDmDeactivatedUser(
+                store.userDisplayName(user.userId, replaceIfMuted: false)));
+          case User():
+            final displayName = store.userDisplayName(user.userId, replaceIfMuted: false);
+            return PageBodyEmptyContentPlaceholder(
+              header: zulipLocalizations.emptyMessageListDm(displayName),
+              message: store.isUserMuted(user.userId)
+                ? null
+                : zulipLocalizations.emptyMessageListDmStartConversation);
+        }
+
+      case DmNarrow(:final otherRecipientIds)
+          when otherRecipientIds.any((userId) {
+            final user = store.getUser(userId);
+            return user != null && !user.isActive;
+          }):
+        return PageBodyEmptyContentPlaceholder(
+          header: zulipLocalizations.emptyMessageListGroupDmDeactivatedUser);
+
+      case DmNarrow():
+        return PageBodyEmptyContentPlaceholder(
+          header: zulipLocalizations.emptyMessageListGroupDm,
+          message: zulipLocalizations.emptyMessageListDmStartConversation);
+
+      case MentionsNarrow():
+        return PageBodyEmptyContentPlaceholder(
+          headerWithLinkMarkup: zulipLocalizations.emptyMessageListMentionsHeader,
+          onTapHeaderLink: () => PlatformActions.launchUrl(context,
+            store.tryResolveUrl('/help/mention-a-user-or-group')!),
+          message: store.zulipFeatureLevel >= 224
+            // This string mentions @topic, which is new in Server 8.
+            ? zulipLocalizations.emptyMessageListMentionsMessage
+            : null); // TODO(server-8)
+
+      case StarredMessagesNarrow():
+        return PageBodyEmptyContentPlaceholder(
+          header: zulipLocalizations.emptyMessageListStarredHeader,
+          messageWithLinkMarkup: zulipLocalizations.emptyMessageListStarredMessage(
+            zulipLocalizations.actionSheetOptionStarMessage),
+          onTapMessageLink: () => PlatformActions.launchUrl(context,
+            store.tryResolveUrl('/help/star-a-message')!));
+
+      case KeywordSearchNarrow():
+        return PageBodyEmptyContentPlaceholder(
+          header: zulipLocalizations.emptyMessageListSearch);
     }
   }
 }
@@ -1387,8 +1535,29 @@ class MarkAsReadWidget extends StatefulWidget {
   State<MarkAsReadWidget> createState() => _MarkAsReadWidgetState();
 }
 
-class _MarkAsReadWidgetState extends State<MarkAsReadWidget> {
+class _MarkAsReadWidgetState extends State<MarkAsReadWidget> with PerAccountStoreAwareStateMixin {
+  Unreads? unreadsModel;
+
   bool _loading = false;
+
+  void _unreadsModelChanged() {
+    setState(() {
+      // The actual state lives in [unreadsModel].
+    });
+  }
+
+  @override
+  void onNewStore() {
+    final newStore = PerAccountStoreWidget.of(context);
+    unreadsModel?.removeListener(_unreadsModelChanged);
+    unreadsModel = newStore.unreads..addListener(_unreadsModelChanged);
+  }
+
+  @override
+  void dispose() {
+    unreadsModel?.removeListener(_unreadsModelChanged);
+    super.dispose();
+  }
 
   void _handlePress(BuildContext context) async {
     if (!context.mounted) return;
@@ -1400,8 +1569,7 @@ class _MarkAsReadWidgetState extends State<MarkAsReadWidget> {
   @override
   Widget build(BuildContext context) {
     final zulipLocalizations = ZulipLocalizations.of(context);
-    final store = PerAccountStoreWidget.of(context);
-    final unreadCount = store.unreads.countInNarrow(widget.narrow);
+    final unreadCount = unreadsModel!.countInNarrow(widget.narrow);
     final shouldHide = unreadCount == 0;
 
     final messageListTheme = MessageListTheme.of(context);
@@ -1610,9 +1778,9 @@ class _UnreadMarker extends StatelessWidget {
     return Stack(
       children: [
         child,
-        Positioned(
+        PositionedDirectional(
           top: 0,
-          left: 0,
+          start: 0,
           bottom: 0,
           width: 4,
           child: AnimatedOpacity(
@@ -1624,7 +1792,7 @@ class _UnreadMarker extends StatelessWidget {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: messageListTheme.unreadMarker,
-                border: Border(left: BorderSide(
+                border: BorderDirectional(start: BorderSide(
                   width: 1,
                   color: messageListTheme.unreadMarkerGap)))))),
       ]);
@@ -1683,6 +1851,7 @@ class StreamMessageRecipientHeader extends StatelessWidget {
         ?? zulipLocalizations.unknownChannelName; // TODO(log)
 
       streamWidget = GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: () => Navigator.push(context,
           MessageListPage.buildRoute(context: context,
             narrow: ChannelNarrow(streamId))),
@@ -1841,7 +2010,7 @@ class RecipientHeaderDate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 0, 16, 0),
+      padding: const EdgeInsetsDirectional.fromSTEB(10, 0, 16, 0),
       child: DateText(
         fontSize: 16,
         // In Figma this has a line-height of 19, but using 18

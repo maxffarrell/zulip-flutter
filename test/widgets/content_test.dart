@@ -6,21 +6,23 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_checks/flutter_checks.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:zulip/api/core.dart';
 import 'package:zulip/api/model/initial_snapshot.dart';
 import 'package:zulip/api/model/model.dart';
+import 'package:zulip/api/route/messages.dart';
 import 'package:zulip/model/content.dart';
 import 'package:zulip/model/narrow.dart';
 import 'package:zulip/model/settings.dart';
 import 'package:zulip/model/store.dart';
 import 'package:zulip/widgets/content.dart';
 import 'package:zulip/widgets/icons.dart';
+import 'package:zulip/widgets/image.dart';
 import 'package:zulip/widgets/katex.dart';
+import 'package:zulip/widgets/lightbox.dart';
 import 'package:zulip/widgets/message_list.dart';
 import 'package:zulip/widgets/page.dart';
-import 'package:zulip/widgets/store.dart';
 import 'package:zulip/widgets/text.dart';
 
+import '../api/fake_api.dart';
 import '../example_data.dart' as eg;
 import '../flutter_checks.dart';
 import '../model/binding.dart';
@@ -169,9 +171,10 @@ void main() {
   /// check that the content has actually rendered.  For examples where there's
   /// no suitable value for [ContentExample.expectedText], use [prepareContent]
   /// and write an appropriate content-has-rendered check directly.
-  void testContentSmoke(ContentExample example) {
+  void testContentSmoke(ContentExample example, {bool wrapWithPerAccountStoreWidget = false}) {
     testWidgets('smoke: ${example.description}', (tester) async {
-      await prepareContent(tester, plainContent(example.html));
+      await prepareContent(tester, plainContent(example.html),
+        wrapWithPerAccountStoreWidget: wrapWithPerAccountStoreWidget);
       assert(example.expectedText != null,
         'testContentExample requires expectedText');
       tester.widget(find.text(example.expectedText!));
@@ -190,6 +193,7 @@ void main() {
     required Widget content,
     required double expectedWght,
     required TextStyle Function(WidgetTester tester) styleFinder,
+    bool wrapWithPerAccountStoreWidget = false,
   }) {
     for (final platformRequestsBold in [false, true]) {
       testWidgets(
@@ -197,7 +201,8 @@ void main() {
         (tester) async {
           tester.platformDispatcher.accessibilityFeaturesTestValue =
             FakeAccessibilityFeatures(boldText: platformRequestsBold);
-          await prepareContent(tester, content);
+          await prepareContent(tester, content,
+            wrapWithPerAccountStoreWidget: wrapWithPerAccountStoreWidget);
           final style = styleFinder(tester);
           double effectiveExpectedWght = expectedWght;
           if (platformRequestsBold) {
@@ -311,7 +316,7 @@ void main() {
           ..status.equals(expected ? AnimationStatus.completed : AnimationStatus.dismissed);
       }
 
-      const example = ContentExample.spoilerHeaderHasImage;
+      const example = ContentExample.spoilerHeaderHasImagePreview;
 
       testWidgets('tap image', (tester) async {
         final pushedRoutes = await prepare(tester, example.html);
@@ -357,9 +362,12 @@ void main() {
 
   testContentSmoke(ContentExample.quotation);
 
-  group('MessageImage, MessageImageList', () {
-    Future<void> prepare(WidgetTester tester, String html) async {
+  group('MessageImagePreview, MessageImagePreviewList', () {
+    Future<void> prepare(WidgetTester tester, String html, {
+      List<NavigatorObserver> navObservers = const [],
+    }) async {
       await prepareContent(tester,
+        navObservers: navObservers,
         // Message is needed for an image's lightbox.
         messageContent(html),
         // We try to resolve image URLs on the self-account's realm.
@@ -367,105 +375,330 @@ void main() {
         wrapWithPerAccountStoreWidget: true);
     }
 
-    testWidgets('single image', (tester) async {
-      const example = ContentExample.imageSingle;
-      await prepare(tester, example.html);
-      final expectedImages = (example.expectedNodes[0] as ImageNodeList).images;
-      final images = tester.widgetList<RealmContentNetworkImage>(
-        find.byType(RealmContentNetworkImage));
-      check(images.map((i) => i.src.toString()).toList())
-        .deepEquals(expectedImages.map((n) => eg.realmUrl.resolve(n.thumbnailUrl!).toString()));
+    group('single image; URLs handled correctly', () {
+      /// Test that the right URLs are used for the right things.
+      ///
+      /// [rawHref] and [rawSrc] are redundant with [example],
+      /// but included so they're directly visible at the callsites.
+      /// (The test asserts that the example HTML contains 'href="$rawHref"'
+      /// and 'src="$rawSrc"'.)
+      ///
+      /// Pass null for [expectUrlInPreview]
+      /// if [expectLoadingIndicator] is true
+      /// or if we don't expect a preview image because of an invalid src.
+      ///
+      /// Pass null for [expectThumbnailUrlInLightbox] and [expectUrlInLightbox]
+      /// if we don't expect to be able to offer the lightbox.
+      Future<void> doTest(WidgetTester tester, {
+        required String rawHref,
+        required String rawSrc,
+        required bool expectLoadingIndicator,
+        required Uri? expectUrlInPreview,
+        required Uri? expectThumbnailUrlInLightbox,
+        required Uri? expectUrlInLightbox,
+        // TODO(#42) required Uri expectUrlForDownload,
+        required ContentExample example,
+      }) async {
+        assert(!(expectUrlInPreview != null && expectLoadingIndicator));
+        check(example.html)
+          ..contains('href="$rawHref"')
+          ..contains('src="$rawSrc"');
+
+        final findImagePreview = find.byType(MessageImagePreview);
+        final findLoadingIndicator = find.descendant(
+          of: findImagePreview, matching: find.byType(CupertinoActivityIndicator));
+
+        final findLightboxPage = find.byType(ImageLightboxPage);
+
+        final transitionDurationObserver = TransitionDurationObserver();
+        await prepare(tester, example.html,
+          navObservers: [transitionDurationObserver]);
+        final imageInPreview = tester.widgetList<RealmContentNetworkImage>(
+          find.descendant(
+            of: findImagePreview, matching: find.byType(RealmContentNetworkImage))
+        ).singleOrNull;
+        check(imageInPreview?.src).equals(expectUrlInPreview);
+        check(findLoadingIndicator).findsExactly(expectLoadingIndicator ? 1 : 0);
+
+        prepareBoringImageHttpClient();
+
+        final lightboxHeroInPreview = tester.widgetList<LightboxHero>(
+          find.descendant(of: findImagePreview, matching: find.byType(LightboxHero))
+        ).singleOrNull;
+
+        if (expectUrlInLightbox != null) {
+          check(lightboxHeroInPreview).isNotNull().src.equals(expectUrlInLightbox);
+        } else {
+          check(lightboxHeroInPreview).isNull();
+        }
+
+        await tester.tap(findImagePreview);
+        await transitionDurationObserver.pumpPastTransition(tester);
+
+        final lightboxPage = tester.widgetList<ImageLightboxPage>(findLightboxPage)
+          .singleOrNull;
+        check(lightboxPage?.thumbnailUrl).equals(expectThumbnailUrlInLightbox);
+        check(lightboxPage?.src).equals(expectUrlInLightbox);
+
+        debugNetworkImageHttpClientProvider = null;
+      }
+
+      Uri url(String reference) => eg.realmUrl.resolve(reference);
+
+      testWidgets('thumbnail', (tester) async {
+        final rawHref = '/user_uploads/2/ce/nvoNL2LaZOciwGZ-FYagddtK/image.jpg';
+        final rawSrc = '/user_uploads/thumbnail/2/ce/nvoNL2LaZOciwGZ-FYagddtK/image.jpg/840x560.webp';
+        await doTest(tester,
+          rawHref: rawHref,
+          rawSrc: rawSrc,
+          expectLoadingIndicator: false,
+          expectUrlInPreview: url(rawSrc),
+          expectThumbnailUrlInLightbox: url('/user_uploads/thumbnail/2/ce/nvoNL2LaZOciwGZ-FYagddtK/image.jpg/840x560.webp'),
+          expectUrlInLightbox: url(rawHref),
+          example: ContentExample.imagePreviewSingle);
+      });
+
+      testWidgets('thumbnail (pre-FL 276)', (tester) async {
+        final rawHref = '/user_uploads/2/c3/wb9FXk8Ej6qIc28aWKcqUogD/image.jpg';
+        final rawSrc = '/user_uploads/thumbnail/2/c3/wb9FXk8Ej6qIc28aWKcqUogD/image.jpg/840x560.webp';
+        await doTest(tester,
+          rawHref: rawHref,
+          rawSrc: rawSrc,
+          expectLoadingIndicator: false,
+          expectUrlInPreview: url(rawSrc),
+          expectThumbnailUrlInLightbox: url(rawSrc),
+          expectUrlInLightbox: url(rawHref),
+          example: ContentExample.imagePreviewSingleNoDimensions);
+      });
+
+      testWidgets('thumbnail, animated', (tester) async {
+        final rawHref = '/user_uploads/2/9f/tZ9c5ZmsI_cSDZ6ZdJmW8pt4/2c8d985d.gif';
+        final rawSrc = '/user_uploads/thumbnail/2/9f/tZ9c5ZmsI_cSDZ6ZdJmW8pt4/2c8d985d.gif/840x560-anim.webp';
+        await doTest(tester,
+          rawHref: rawHref,
+          rawSrc: rawSrc,
+          expectLoadingIndicator: false,
+          expectUrlInPreview: url(rawSrc),
+          expectThumbnailUrlInLightbox: url(rawSrc),
+          expectUrlInLightbox: url(rawHref),
+          example: ContentExample.imagePreviewSingleAnimated);
+      });
+
+      testWidgets('thumbnail, loading', (tester) async {
+        final rawHref = '/user_uploads/path/to/example.png';
+        final rawSrc = '/static/images/loading/loader-black.svg';
+        await doTest(tester,
+          rawHref: rawHref,
+          rawSrc: rawSrc,
+          expectLoadingIndicator: true,
+          expectUrlInPreview: null,
+          expectThumbnailUrlInLightbox: null,
+          expectUrlInLightbox: url(rawHref),
+          example: ContentExample.imagePreviewSingleLoadingPlaceholder);
+      });
+
+      testWidgets('thumbnail, loading (pre-FL 278)', (tester) async {
+        final rawHref = '/user_uploads/2/c3/wb9FXk8Ej6qIc28aWKcqUogD/image.jpg';
+        final rawSrc = '/static/images/loading/loader-black.svg';
+        await doTest(tester,
+          rawHref: rawHref,
+          rawSrc: rawSrc,
+          expectLoadingIndicator: true,
+          expectUrlInPreview: null,
+          expectThumbnailUrlInLightbox: null,
+          expectUrlInLightbox: url(rawHref),
+          example: ContentExample.imagePreviewSingleLoadingPlaceholderNoDimensions);
+      });
+
+      testWidgets('thumbnail, loading, spinner image itself is a thumbnail', (tester) async {
+        final rawHref = '/user_uploads/path/to/spinner.png';
+        final rawSrc = '/user_uploads/thumbnail/path/to/spinner.png/840x560.webp';
+        await doTest(tester,
+          rawHref: rawHref,
+          rawSrc: rawSrc,
+          expectLoadingIndicator: true,
+          expectUrlInPreview: null,
+          expectThumbnailUrlInLightbox: null,
+          expectUrlInLightbox: url(rawHref),
+          example: ContentExample.imagePreviewSingleLoadingPlaceholderSpinnerIsThumbnail);
+      });
+
+      testWidgets('no thumbnail', (tester) async {
+        final rawHref = 'https://chat.zulip.org/user_avatars/2/realm/icon.png?version=3';
+        final rawSrc = 'https://chat.zulip.org/user_avatars/2/realm/icon.png?version=3';
+        await doTest(tester,
+          rawHref: rawHref,
+          rawSrc: rawSrc,
+          expectLoadingIndicator: false,
+          expectUrlInPreview: Uri.parse(rawSrc),
+          expectThumbnailUrlInLightbox: null,
+          expectUrlInLightbox: Uri.parse(rawHref),
+          example: ContentExample.imagePreviewSingleNoThumbnail);
+      });
+
+      testWidgets('external; src starts with /external_content', (tester) async {
+        final rawHref = 'https://upload.wikimedia.org/wikipedia/commons/7/78/Verregende_bloem_van_een_Helenium_%27El_Dorado%27._22-07-2023._%28d.j.b%29.jpg';
+        final rawSrc = '/external_content/de28eb3abf4b7786de4545023dc42d434a2ea0c2/68747470733a2f2f75706c6f61642e77696b696d656469612e6f72672f77696b6970656469612f636f6d6d6f6e732f372f37382f566572726567656e64655f626c6f656d5f76616e5f65656e5f48656c656e69756d5f253237456c5f446f7261646f2532372e5f32322d30372d323032332e5f253238642e6a2e622532392e6a7067';
+        await doTest(tester,
+          rawHref: rawHref,
+          rawSrc: rawSrc,
+          expectLoadingIndicator: false,
+          expectUrlInPreview: url(rawSrc),
+          expectThumbnailUrlInLightbox: null,
+          expectUrlInLightbox: url(rawSrc),
+          example: ContentExample.imagePreviewSingleExternal1);
+      });
+
+      testWidgets('external; src starts with https://uploads.zulipusercontent.net/', (tester) async {
+        final rawHref = 'https://upload.wikimedia.org/wikipedia/commons/7/78/Verregende_bloem_van_een_Helenium_%27El_Dorado%27._22-07-2023._%28d.j.b%29.jpg';
+        final rawSrc = 'https://uploads.zulipusercontent.net/99742b0f992be15283c428dd42f3b9f5db138d69/68747470733a2f2f75706c6f61642e77696b696d656469612e6f72672f77696b6970656469612f636f6d6d6f6e732f372f37382f566572726567656e64655f626c6f656d5f76616e5f65656e5f48656c656e69756d5f253237456c5f446f7261646f2532372e5f32322d30372d323032332e5f253238642e6a2e622532392e6a7067';
+        await doTest(tester,
+          rawHref: rawHref,
+          rawSrc: rawSrc,
+          expectLoadingIndicator: false,
+          expectUrlInPreview: Uri.parse(rawSrc),
+          expectThumbnailUrlInLightbox: null,
+          expectUrlInLightbox: Uri.parse(rawSrc),
+          example: ContentExample.imagePreviewSingleExternal2);
+      });
+
+      testWidgets('external; src starts with https://custom.camo-uri.example/', (tester) async {
+        final rawHref = 'https://upload.wikimedia.org/wikipedia/commons/7/78/Verregende_bloem_van_een_Helenium_%27El_Dorado%27._22-07-2023._%28d.j.b%29.jpg';
+        final rawSrc = 'https://custom.camo-uri.example/99742b0f992be15283c428dd42f3b9f5db138d69/68747470733a2f2f75706c6f61642e77696b696d656469612e6f72672f77696b6970656469612f636f6d6d6f6e732f372f37382f566572726567656e64655f626c6f656d5f76616e5f65656e5f48656c656e69756d5f253237456c5f446f7261646f2532372e5f32322d30372d323032332e5f253238642e6a2e622532392e6a7067';
+        await doTest(tester,
+          rawHref: rawHref,
+          rawSrc: rawSrc,
+          expectLoadingIndicator: false,
+          expectUrlInPreview: Uri.parse(rawSrc),
+          expectThumbnailUrlInLightbox: null,
+          expectUrlInLightbox: Uri.parse(rawSrc),
+          example: ContentExample.imagePreviewSingleExternal3);
+      });
+
+      testWidgets('invalid src', (tester) async {
+        final rawHref = '/user_uploads/2/ce/nvoNL2LaZOciwGZ-FYagddtK/image.jpg';
+        final rawSrc = '::not a URL::';
+        await doTest(tester,
+          rawHref: rawHref,
+          rawSrc: rawSrc,
+          expectLoadingIndicator: false,
+          expectUrlInPreview: null,
+          expectThumbnailUrlInLightbox: null,
+          expectUrlInLightbox: null,
+          example: ContentExample.imagePreviewInvalidSrc);
+      });
+
+      testWidgets('invalid href; external src', (tester) async {
+        final rawHref = '::not a URL::';
+        final rawSrc = '/external_content/de28eb3abf4b7786de4545023dc42d434a2ea0c2/68747470733a2f2f75706c6f61642e77696b696d656469612e6f72672f77696b6970656469612f636f6d6d6f6e732f372f37382f566572726567656e64655f626c6f656d5f76616e5f65656e5f48656c656e69756d5f253237456c5f446f7261646f2532372e5f32322d30372d323032332e5f253238642e6a2e622532392e6a7067';
+        await doTest(tester,
+          rawHref: rawHref,
+          rawSrc: rawSrc,
+          expectLoadingIndicator: false,
+          expectUrlInPreview: url(rawSrc),
+          expectThumbnailUrlInLightbox: null,
+          expectUrlInLightbox: url(rawSrc),
+          example: ContentExample.imagePreviewInvalidHref1);
+      });
+
+      testWidgets('invalid href; thumbnail src', (tester) async {
+        final rawHref = '::not a URL::';
+        final rawSrc = '/user_uploads/thumbnail/2/ce/nvoNL2LaZOciwGZ-FYagddtK/image.jpg/840x560.webp';
+        await doTest(tester,
+          rawHref: rawHref,
+          rawSrc: rawSrc,
+          expectLoadingIndicator: false,
+          expectUrlInPreview: url(rawSrc),
+          expectThumbnailUrlInLightbox: null,
+          expectUrlInLightbox: null,
+          example: ContentExample.imagePreviewInvalidHref2);
+      });
+
+      testWidgets('invalid src and href', (tester) async {
+        final rawHref = '::not a URL::';
+        final rawSrc = '::not a URL::';
+        await doTest(tester,
+          rawHref: rawHref,
+          rawSrc: rawSrc,
+          expectLoadingIndicator: false,
+          expectUrlInPreview: null,
+          expectThumbnailUrlInLightbox: null,
+          expectUrlInLightbox: null,
+          example: ContentExample.imagePreviewInvalidSrcAndHref);
+      });
     });
 
-    testWidgets('single image no thumbnail', (tester) async {
-      const example = ContentExample.imageSingleNoThumbnail;
-      await prepare(tester, example.html);
-      final expectedImages = (example.expectedNodes[0] as ImageNodeList).images;
-      final images = tester.widgetList<RealmContentNetworkImage>(
-        find.byType(RealmContentNetworkImage));
-      check(images.map((i) => i.src.toString()).toList())
-        .deepEquals(expectedImages.map((n) => n.srcUrl));
-    });
+    Uri thumbnailSrc(ImageNodeSrc src) {
+      final value = (src as ImageNodeSrcThumbnail).value;
+      return eg.realmUrl.resolve(value.defaultFormatSrc.toString());
+    }
 
-    testWidgets('single image loading placeholder', (tester) async {
-      const example = ContentExample.imageSingleLoadingPlaceholder;
-      await prepare(tester, example.html);
-      await tester.ensureVisible(find.byType(CupertinoActivityIndicator));
-    });
-
-    testWidgets('image with invalid src URL', (tester) async {
-      const example = ContentExample.imageInvalidUrl;
-      await prepare(tester, example.html);
-      // The image indeed has an invalid URL.
-      final expectedImages = (example.expectedNodes[0] as ImageNodeList).images;
-      check(() => Uri.parse(expectedImages.single.srcUrl)).throws<void>();
-      check(tryResolveUrl(eg.realmUrl, expectedImages.single.srcUrl)).isNull();
-      // The MessageImage has shown up, but it doesn't attempt a RealmContentNetworkImage.
-      check(tester.widgetList(find.byType(MessageImage))).isNotEmpty();
-      check(tester.widgetList(find.byType(RealmContentNetworkImage))).isEmpty();
-    });
+    Uri otherSrc(ImageNodeSrc src) {
+      final value = (src as ImageNodeSrcOther).value;
+      return eg.realmUrl.resolve(value);
+    }
 
     testWidgets('multiple images', (tester) async {
-      const example = ContentExample.imageCluster;
+      final example = ContentExample.imagePreviewCluster;
       await prepare(tester, example.html);
-      final expectedImages = (example.expectedNodes[1] as ImageNodeList).images;
+      final expectedImages = (example.expectedNodes[1] as ImagePreviewNodeList).imagePreviews;
       final images = tester.widgetList<RealmContentNetworkImage>(
         find.byType(RealmContentNetworkImage));
-      check(images.map((i) => i.src.toString()).toList())
-        .deepEquals(expectedImages.map((n) => eg.realmUrl.resolve(n.thumbnailUrl!).toString()));
+      check(images.map((i) => i.src).toList())
+        .deepEquals(expectedImages.map((n) => thumbnailSrc(n.src)));
     });
 
     testWidgets('multiple images no thumbnails', (tester) async {
-      const example = ContentExample.imageClusterNoThumbnails;
+      const example = ContentExample.imagePreviewClusterNoThumbnails;
       await prepare(tester, example.html);
-      final expectedImages = (example.expectedNodes[1] as ImageNodeList).images;
+      final expectedImages = (example.expectedNodes[1] as ImagePreviewNodeList).imagePreviews;
       final images = tester.widgetList<RealmContentNetworkImage>(
         find.byType(RealmContentNetworkImage));
-      check(images.map((i) => i.src.toString()).toList())
-        .deepEquals(expectedImages.map((n) => n.srcUrl));
+      check(images.map((i) => i.src).toList())
+        .deepEquals(expectedImages.map((n) => otherSrc(n.src)));
     });
 
     testWidgets('content after image cluster', (tester) async {
-      const example = ContentExample.imageClusterThenContent;
+      const example = ContentExample.imagePreviewClusterThenContent;
       await prepare(tester, example.html);
-      final expectedImages = (example.expectedNodes[1] as ImageNodeList).images;
+      final expectedImages = (example.expectedNodes[1] as ImagePreviewNodeList).imagePreviews;
       final images = tester.widgetList<RealmContentNetworkImage>(
         find.byType(RealmContentNetworkImage));
-      check(images.map((i) => i.src.toString()).toList())
-        .deepEquals(expectedImages.map((n) => n.srcUrl));
+      check(images.map((i) => i.src).toList())
+        .deepEquals(expectedImages.map((n) => otherSrc(n.src)));
     });
 
     testWidgets('multiple clusters of images', (tester) async {
-      const example = ContentExample.imageMultipleClusters;
+      const example = ContentExample.imagePreviewMultipleClusters;
       await prepare(tester, example.html);
-      final expectedImages = (example.expectedNodes[1] as ImageNodeList).images
-        + (example.expectedNodes[4] as ImageNodeList).images;
+      final expectedImages = (example.expectedNodes[1] as ImagePreviewNodeList).imagePreviews
+        + (example.expectedNodes[4] as ImagePreviewNodeList).imagePreviews;
       final images = tester.widgetList<RealmContentNetworkImage>(
         find.byType(RealmContentNetworkImage));
-      check(images.map((i) => i.src.toString()).toList())
-        .deepEquals(expectedImages.map((n) => n.srcUrl));
+      check(images.map((i) => i.src).toList())
+        .deepEquals(expectedImages.map((n) => otherSrc(n.src)));
     });
 
     testWidgets('image as immediate child in implicit paragraph', (tester) async {
-      const example = ContentExample.imageInImplicitParagraph;
+      const example = ContentExample.imagePreviewInImplicitParagraph;
       await prepare(tester, example.html);
       final expectedImages = ((example.expectedNodes[0] as ListNode)
-        .items[0][0] as ImageNodeList).images;
+        .items[0][0] as ImagePreviewNodeList).imagePreviews;
       final images = tester.widgetList<RealmContentNetworkImage>(
         find.byType(RealmContentNetworkImage));
-      check(images.map((i) => i.src.toString()).toList())
-        .deepEquals(expectedImages.map((n) => n.srcUrl));
+      check(images.map((i) => i.src).toList())
+        .deepEquals(expectedImages.map((n) => otherSrc(n.src)));
     });
 
     testWidgets('image cluster in implicit paragraph', (tester) async {
-      const example = ContentExample.imageClusterInImplicitParagraph;
+      const example = ContentExample.imagePreviewClusterInImplicitParagraph;
       await prepare(tester, example.html);
       final expectedImages = ((example.expectedNodes[0] as ListNode)
-        .items[0][1] as ImageNodeList).images;
+        .items[0][1] as ImagePreviewNodeList).imagePreviews;
       final images = tester.widgetList<RealmContentNetworkImage>(
         find.byType(RealmContentNetworkImage));
-      check(images.map((i) => i.src.toString()).toList())
-        .deepEquals(expectedImages.map((n) => n.srcUrl));
+      check(images.map((i) => i.src).toList())
+        .deepEquals(expectedImages.map((n) => otherSrc(n.src)));
     });
   });
 
@@ -748,19 +981,32 @@ void main() {
   });
 
   group('UserMention', () {
-    testContentSmoke(ContentExample.userMentionPlain);
-    testContentSmoke(ContentExample.userMentionSilent);
-    testContentSmoke(ContentExample.groupMentionPlain);
-    testContentSmoke(ContentExample.groupMentionSilent);
-    testContentSmoke(ContentExample.channelWildcardMentionPlain);
-    testContentSmoke(ContentExample.channelWildcardMentionSilent);
-    testContentSmoke(ContentExample.channelWildcardMentionSilentClassOrderReversed);
-    testContentSmoke(ContentExample.legacyChannelWildcardMentionPlain);
-    testContentSmoke(ContentExample.legacyChannelWildcardMentionSilent);
-    testContentSmoke(ContentExample.legacyChannelWildcardMentionSilentClassOrderReversed);
-    testContentSmoke(ContentExample.topicMentionPlain);
-    testContentSmoke(ContentExample.topicMentionSilent);
-    testContentSmoke(ContentExample.topicMentionSilentClassOrderReversed);
+    testContentSmoke(ContentExample.userMentionPlain,
+      wrapWithPerAccountStoreWidget: true);
+    testContentSmoke(ContentExample.userMentionSilent,
+      wrapWithPerAccountStoreWidget: true);
+    testContentSmoke(ContentExample.groupMentionPlain,
+      wrapWithPerAccountStoreWidget: true);
+    testContentSmoke(ContentExample.groupMentionSilent,
+      wrapWithPerAccountStoreWidget: true);
+    testContentSmoke(ContentExample.channelWildcardMentionPlain,
+      wrapWithPerAccountStoreWidget: true);
+    testContentSmoke(ContentExample.channelWildcardMentionSilent,
+      wrapWithPerAccountStoreWidget: true);
+    testContentSmoke(ContentExample.channelWildcardMentionSilentClassOrderReversed,
+      wrapWithPerAccountStoreWidget: true);
+    testContentSmoke(ContentExample.legacyChannelWildcardMentionPlain,
+      wrapWithPerAccountStoreWidget: true);
+    testContentSmoke(ContentExample.legacyChannelWildcardMentionSilent,
+      wrapWithPerAccountStoreWidget: true);
+    testContentSmoke(ContentExample.legacyChannelWildcardMentionSilentClassOrderReversed,
+      wrapWithPerAccountStoreWidget: true);
+    testContentSmoke(ContentExample.topicMentionPlain,
+      wrapWithPerAccountStoreWidget: true);
+    testContentSmoke(ContentExample.topicMentionSilent,
+      wrapWithPerAccountStoreWidget: true);
+    testContentSmoke(ContentExample.topicMentionSilentClassOrderReversed,
+      wrapWithPerAccountStoreWidget: true);
 
     UserMention? findUserMentionInSpan(InlineSpan rootSpan) {
       UserMention? result;
@@ -782,6 +1028,7 @@ void main() {
     testWidgets('maintains font-size ratio with surrounding text', (tester) async {
       await checkFontSizeRatio(tester,
         targetHtml: '<span class="user-mention" data-user-id="13313">@Chris Bobbe</span>',
+        wrapWithPerAccountStoreWidget: true,
         targetFontSizeFinder: (rootSpan) {
           final widget = findUserMentionInSpan(rootSpan);
           final style = textStyleFromWidget(tester, widget!, '@Chris Bobbe');
@@ -794,6 +1041,7 @@ void main() {
       // @_**Greg Price**
       content: plainContent(
         '<p><span class="user-mention silent" data-user-id="2187">Greg Price</span></p>'),
+      wrapWithPerAccountStoreWidget: true,
       styleFinder: (tester) {
         return textStyleFromWidget(tester,
           tester.widget(find.byType(UserMention)), 'Greg Price');
@@ -808,6 +1056,7 @@ void main() {
       // # @_**Chris Bobbe**
       content: plainContent(
         '<h1><span class="user-mention silent" data-user-id="13313">Chris Bobbe</span></h1>'),
+      wrapWithPerAccountStoreWidget: true,
       styleFinder: (tester) {
         return textStyleFromWidget(tester,
           tester.widget(find.byType(UserMention)), 'Chris Bobbe');
@@ -816,6 +1065,52 @@ void main() {
     // TODO(#647):
     //  testFontWeight('non-silent self-user mention in bold context',
     //    expectedWght: 800, // [etc.]
+
+    group('dynamic name resolution', () {
+      Future<void> prepare({
+        required WidgetTester tester,
+        required String html,
+        List<User>? users,
+      }) async {
+        final initialSnapshot = eg.initialSnapshot(realmUsers: users);
+        await prepareContent(tester,
+          wrapWithPerAccountStoreWidget: true,
+          initialSnapshot: initialSnapshot,
+          plainContent(html));
+      }
+
+      testWidgets('resolves current user name from store', (tester) async {
+        await prepare(
+          tester: tester,
+          html: '<p><span class="user-mention" data-user-id="123">@Old Name</span></p>',
+          users: [eg.selfUser, eg.user(userId: 123, fullName: 'New Name')]);
+        check(find.text('@New Name')).findsOne();
+        check(find.text('@Old Name')).findsNothing();
+      });
+
+      testWidgets('falls back to original text when user not found', (tester) async {
+        await prepare(
+          tester: tester,
+          html: '<p><span class="user-mention" data-user-id="999">@Unknown User</span></p>');
+        check(find.text('@Unknown User')).findsOne();
+      });
+
+      testWidgets('falls back to original text when userId is null', (tester) async {
+        await prepare(
+          tester: tester,
+          html: '<p><span class="user-mention channel-wildcard-mention" data-user-id="*">@all</span></p>');
+        check(find.text('@all')).findsOne();
+      });
+
+      testWidgets('handles silent mentions correctly', (tester) async {
+        await prepare(
+          tester: tester,
+          html: '<p><span class="user-mention silent" data-user-id="123">Old Name</span></p>',
+          users: [eg.selfUser, eg.user(userId: 123, fullName: 'New Name')]);
+        check(find.text('New Name')).findsOne();
+        check(find.text('@New Name')).findsNothing();
+      });
+    });
   });
 
   Future<void> tapText(WidgetTester tester, Finder textFinder) async {
@@ -944,6 +1239,9 @@ void main() {
   });
 
   group('LinkNode on internal links', () {
+    late PerAccountStore store;
+    late FakeApiConnection connection;
+
     Future<List<Route<dynamic>>> prepare(WidgetTester tester, String html) async {
       final pushedRoutes = <Route<dynamic>>[];
       final testNavObserver = TestNavigatorObserver()
@@ -959,12 +1257,13 @@ void main() {
       assert(pushedRoutes.length == 1);
       pushedRoutes.removeLast();
 
-      final store = await testBinding.globalStore.perAccount(eg.selfAccount.id);
+      store = await testBinding.globalStore.perAccount(eg.selfAccount.id);
+      connection = store.connection as FakeApiConnection;
       await store.addStream(eg.stream(name: 'stream'));
       return pushedRoutes;
     }
 
-    testWidgets('valid internal links are navigated to within app', (tester) async {
+    testWidgets('narrow links are navigated to within app', (tester) async {
       final pushedRoutes = await prepare(tester,
         '<p><a href="/#narrow/stream/1-check">stream</a></p>');
 
@@ -975,6 +1274,22 @@ void main() {
     });
 
     // TODO(#1570): test links with /near/ go to the specific message
+
+    testWidgets('uploaded-file links are opened with temporary authed URL', (tester) async {
+      final pushedRoutes = await prepare(tester,
+        '<p><a href="/user_uploads/123/ab/paper.pdf">paper.pdf</a></p>');
+
+      final tempUrlString = '/temp/s3kr1t-auth-token/paper.pdf';
+      final expectedUrl = eg.realmUrl.resolve(tempUrlString);
+
+      connection.prepare(json: GetFileTemporaryUrlResult(
+        url: tempUrlString).toJson());
+      await tapText(tester, find.text('paper.pdf'));
+      await tester.pump(Duration.zero);
+      check(testBinding.takeLaunchUrlCalls())
+        .single.equals((url: expectedUrl, mode: LaunchMode.inAppBrowserView));
+      check(pushedRoutes).isEmpty();
+    });
 
     testWidgets('invalid internal links are opened in browser', (tester) async {
       // Link is invalid due to `topic` operator missing an operand.
@@ -1190,10 +1505,14 @@ void main() {
     }
 
     testWidgets('tapping on audio link opens it in browser', (tester) async {
-      final url = eg.realmUrl.resolve('/user_uploads/2/f2/a_WnijOXIeRnI6OSxo9F6gZM/crab-rave.mp3');
       await prepare(tester, ContentExample.audioInline.html);
+      final store = await testBinding.globalStore.perAccount(eg.selfAccount.id);
+      final connection = store.connection as FakeApiConnection;
 
+      final url = eg.realmUrl.resolve('/temp/token/crab-rave.mp3');
+      connection.prepare(json: GetFileTemporaryUrlResult(url: url.path).toJson());
       await tapText(tester, find.text('crab-rave.mp3'));
+      await tester.pump(Duration.zero);
 
       final expectedLaunchMode = defaultTargetPlatform == TargetPlatform.iOS ?
         LaunchMode.externalApplication : LaunchMode.inAppBrowserView;
@@ -1226,6 +1545,53 @@ void main() {
     testWidgets('smoke: Zulip extra emoji', (tester) async {
       await prepare(tester, ContentExample.emojiZulipExtra.html);
       tester.widget(find.byType(MessageImageEmoji));
+      debugNetworkImageHttpClientProvider = null;
+    });
+  });
+
+  group('InlineImage', () {
+    late TransitionDurationObserver transitionDurationObserver;
+
+    Future<void> prepare(WidgetTester tester, String html) async {
+      transitionDurationObserver = TransitionDurationObserver();
+      await prepareContent(tester,
+        // Message is needed for the image's lightbox.
+        messageContent(html),
+        navObservers: [transitionDurationObserver],
+        // We try to resolve the image's URL on the self-account's realm.
+        wrapWithPerAccountStoreWidget: true);
+    }
+
+    testWidgets('smoke: inline image', (tester) async {
+      await prepare(tester, ContentExample.inlineImage.html);
+      check(find.byType(InlineImage)).findsOne();
+
+      prepareBoringImageHttpClient();
+      await tester.tap(find.byType(InlineImage));
+      await transitionDurationObserver.pumpPastTransition(tester);
+      check(find.byType(InteractiveViewer)).findsOne(); // recognize the lightbox
+      debugNetworkImageHttpClientProvider = null;
+    });
+
+    testWidgets('smoke: inline image, loading', (tester) async {
+      await prepare(tester, ContentExample.inlineImageLoading.html);
+      check(find.byType(InlineImage)).findsOne();
+      check(find.byType(CupertinoActivityIndicator)).findsOne();
+    });
+
+    testWidgets('smoke: inline image, animated', (tester) async {
+      await prepare(tester, ContentExample.inlineImageAnimated.html);
+      check(find.byType(InlineImage)).findsOne();
+    });
+
+    testWidgets('table with inline image', (tester) async {
+      await prepare(tester, ContentExample.tableWithInlineImage.html);
+      check(find.byType(InlineImage)).findsOne();
+
+      prepareBoringImageHttpClient();
+      await tester.tap(find.byType(InlineImage));
+      await transitionDurationObserver.pumpPastTransition(tester);
+      check(find.byType(InteractiveViewer)).findsOne(); // recognize the lightbox
       debugNetworkImageHttpClientProvider = null;
     });
   });
@@ -1290,46 +1656,6 @@ void main() {
       check(testBinding.takeLaunchUrlCalls())
         .single.equals((url: url, mode: LaunchMode.inAppBrowserView));
       debugNetworkImageHttpClientProvider = null;
-    });
-  });
-
-  group('RealmContentNetworkImage', () {
-    final authHeaders = authHeader(email: eg.selfAccount.email, apiKey: eg.selfAccount.apiKey);
-
-    Future<Map<String, List<String>>> actualHeaders(WidgetTester tester, Uri src) async {
-      addTearDown(testBinding.reset);
-      await testBinding.globalStore.add(eg.selfAccount, eg.initialSnapshot());
-
-      final httpClient = prepareBoringImageHttpClient();
-
-      await tester.pumpWidget(GlobalStoreWidget(
-        child: PerAccountStoreWidget(accountId: eg.selfAccount.id,
-          child: RealmContentNetworkImage(src))));
-      await tester.pump();
-      await tester.pump();
-
-      return httpClient.request.headers.values;
-    }
-
-    testWidgets('includes auth header if `src` on-realm', (tester) async {
-      check(await actualHeaders(tester, Uri.parse('https://chat.example/image.png')))
-        .deepEquals({
-          'Authorization': [authHeaders['Authorization']!],
-          'User-Agent': [userAgentHeader()['User-Agent']!],
-        });
-      debugNetworkImageHttpClientProvider = null;
-    });
-
-    testWidgets('excludes auth header if `src` off-realm', (tester) async {
-      check(await actualHeaders(tester, Uri.parse('https://other.example/image.png')))
-        .deepEquals({'User-Agent': [userAgentHeader()['User-Agent']!]});
-      debugNetworkImageHttpClientProvider = null;
-    });
-
-    testWidgets('throws if no `PerAccountStoreWidget` ancestor', (tester) async {
-      await tester.pumpWidget(
-        RealmContentNetworkImage(Uri.parse('https://zulip.invalid/path/to/image.png'), filterQuality: FilterQuality.medium));
-      check(tester.takeException()).isA<AssertionError>();
     });
   });
 

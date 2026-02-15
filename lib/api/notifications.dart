@@ -7,6 +7,9 @@ part 'notifications.g.dart';
 
 /// Parsed version of an FCM message, of any type.
 ///
+/// For partial API docs, see:
+///   https://zulip.com/api/mobile-notifications
+///
 /// Firebase Cloud Messaging (FCM) is the service run by Google that we use
 /// for delivering notifications to Android devices.  An FCM message may
 /// be to tell us we should show a notification, or something else like
@@ -27,7 +30,8 @@ sealed class FcmMessage {
   FcmMessage();
 
   factory FcmMessage.fromJson(Map<String, dynamic> json) {
-    switch (json['event']) {
+    final notifType = json['type'] ?? json['event']; // TODO(server-12)
+    switch (notifType) {
       case 'message': return MessageFcmMessage.fromJson(json);
       case 'remove': return RemoveFcmMessage.fromJson(json);
       default: return UnexpectedFcmMessage.fromJson(json);
@@ -53,14 +57,8 @@ class UnexpectedFcmMessage extends FcmMessage {
 /// (all [FcmMessage] subclasses other than [UnexpectedFcmMessage]),
 /// and it seems likely that it always will.
 sealed class FcmMessageWithIdentity extends FcmMessage {
-  /// The server's `EXTERNAL_HOST` setting.  This is a hostname,
-  /// or a colon-separated hostname-plus-port.
-  ///
-  /// For documentation, see zulip-server:zproject/prod_settings_template.py .
-  final String server;
-
-  /// The realm's ID within the server.
-  final int realmId;
+  // final String server; // ignore; never used, gone with E2EE notifs
+  // final int realmId; // ignore; never used, gone with E2EE notifs
 
   /// The realm's own URL.
   ///
@@ -73,11 +71,10 @@ sealed class FcmMessageWithIdentity extends FcmMessage {
   ///
   /// Useful mainly in the case where the user has multiple accounts in the
   /// same realm.
+  @JsonKey(readValue: _readIntOrString) // TODO(server-12)
   final int userId;
 
   FcmMessageWithIdentity({
-    required this.server,
-    required this.realmId,
     required this.realmUrl,
     required this.userId,
   });
@@ -96,12 +93,11 @@ sealed class FcmMessageWithIdentity extends FcmMessage {
 /// The word "message" can be confusing in this context.
 /// See [FcmMessage] for discussion.
 @JsonSerializable(fieldRename: FieldRename.snake)
-@_IntConverter()
-@_IntListConverter()
 class MessageFcmMessage extends FcmMessageWithIdentity {
-  @JsonKey(includeToJson: true, name: 'event')
+  @JsonKey(includeToJson: true)
   String get type => 'message';
 
+  @JsonKey(readValue: _readIntOrString) // TODO(server-12)
   final int senderId;
   // final String senderEmail; // obsolete; ignore
   final Uri senderAvatarUrl;
@@ -110,7 +106,9 @@ class MessageFcmMessage extends FcmMessageWithIdentity {
   @JsonKey(includeToJson: false, readValue: _readWhole)
   final FcmMessageRecipient recipient;
 
-  final int zulipMessageId;
+  @JsonKey(readValue: _readMessageId)
+  final int messageId;
+  @JsonKey(readValue: _readIntOrString) // TODO(server-12)
   final int time; // in Unix seconds UTC, like [Message.timestamp]
 
   /// The content of the Zulip message, rendered as plain text.
@@ -120,24 +118,27 @@ class MessageFcmMessage extends FcmMessageWithIdentity {
   /// zulip/zulip:zerver/lib/push_notifications.py .
   final String content;
 
-  static Object? _readWhole(Map<dynamic, dynamic> json, String key) => json;
-
   MessageFcmMessage({
-    required super.server,
-    required super.realmId,
     required super.realmUrl,
     required super.userId,
     required this.senderId,
     required this.senderAvatarUrl,
     required this.senderFullName,
     required this.recipient,
-    required this.zulipMessageId,
+    required this.messageId,
     required this.content,
     required this.time,
   });
 
+  static Object? _readMessageId(Map<dynamic, dynamic> json, String key) {
+    return json['message_id']
+      ?? const _IntConverter().fromJson(json['zulip_message_id'] as String); // TODO(server-12)
+  }
+
+  static Object? _readWhole(Map<dynamic, dynamic> json, String key) => json;
+
   factory MessageFcmMessage.fromJson(Map<String, dynamic> json) {
-    assert(json['event'] == 'message');
+    assert((json['type'] ?? json['event']) == 'message'); // TODO(server-12)
     return _$MessageFcmMessageFromJson(json);
   }
 
@@ -146,16 +147,13 @@ class MessageFcmMessage extends FcmMessageWithIdentity {
     final result = _$MessageFcmMessageToJson(this);
     final recipient = this.recipient;
     switch (recipient) {
-      case FcmMessageDmRecipient(allRecipientIds: [_] || [_, _]):
-        break;
       case FcmMessageDmRecipient(:var allRecipientIds):
-        result['pm_users'] = const _IntListConverter().toJson(allRecipientIds);
+        result['recipient_user_ids'] = allRecipientIds;
       case FcmMessageChannelRecipient():
-        result['stream_id'] = const _IntConverter().toJson(recipient.streamId);
-        if (recipient.streamName != null) result['stream'] = recipient.streamName;
+        result['channel_id'] = recipient.channelId;
+        if (recipient.channelName != null) result['channel_name'] = recipient.channelName;
         result['topic'] = recipient.topic;
     }
-    result['realm_uri'] = realmUrl.toString(); // TODO(server-9): deprecated in FL 257
     return result;
   }
 }
@@ -166,8 +164,8 @@ sealed class FcmMessageRecipient {
 
   factory FcmMessageRecipient.fromJson(Map<String, dynamic> json) {
     // There's also a `recipient_type` field, but we don't really need it.
-    // The presence or absence of `stream_id` is just as informative.
-    return json.containsKey('stream_id')
+    // The presence or absence of `channel_id`/`stream_id` is just as informative.
+    return (json.containsKey('channel_id') || json.containsKey('stream_id')) // TODO(server-12)
       ? FcmMessageChannelRecipient.fromJson(json)
       : FcmMessageDmRecipient.fromJson(json);
   }
@@ -175,19 +173,28 @@ sealed class FcmMessageRecipient {
 
 /// An [FcmMessageRecipient] for a Zulip message to a stream.
 @JsonSerializable(fieldRename: FieldRename.snake, createToJson: false)
-@_IntConverter()
 class FcmMessageChannelRecipient extends FcmMessageRecipient {
-  final int streamId;
+  @JsonKey(readValue: _readChannelId)
+  final int channelId;
 
-  // Current servers (as of 2025) always send the stream name.  But
+  // Current servers (as of 2025) always send the channel name.  But
   // future servers might not, once clients get the name from local data.
   // So might as well be ready.
-  @JsonKey(name: 'stream')
-  final String? streamName;
+  @JsonKey(readValue: _readChannelName)
+  final String? channelName;
 
   final TopicName topic;
 
-  FcmMessageChannelRecipient({required this.streamId, required this.streamName, required this.topic});
+  FcmMessageChannelRecipient({required this.channelId, required this.channelName, required this.topic});
+
+  static Object? _readChannelId(Map<dynamic, dynamic> json, String key) {
+    return json['channel_id']
+      ?? const _IntConverter().fromJson(json['stream_id'] as String); // TODO(server-12)
+  }
+
+  static Object? _readChannelName(Map<dynamic, dynamic> json, String key) {
+    return json['channel_name'] ?? json['stream']; // TODO(server-12)
+  }
 
   factory FcmMessageChannelRecipient.fromJson(Map<String, dynamic> json) =>
     _$FcmMessageChannelRecipientFromJson(json);
@@ -201,6 +208,10 @@ class FcmMessageDmRecipient extends FcmMessageRecipient {
 
   factory FcmMessageDmRecipient.fromJson(Map<String, dynamic> json) {
     return FcmMessageDmRecipient(allRecipientIds: switch (json) {
+      // TODO(server-12) accept only the recipient_user_ids form
+      {'recipient_user_ids': List<dynamic> userIds} =>
+        userIds.map((id) => id as int).toList(),
+
       // Group DM conversations ("huddles") are represented with `pm_users`,
       // which lists all the user IDs in the conversation.
       // TODO check they're sorted.
@@ -225,38 +236,36 @@ class FcmMessageDmRecipient extends FcmMessageRecipient {
 }
 
 @JsonSerializable(fieldRename: FieldRename.snake)
-@_IntConverter()
-@_IntListConverter()
 class RemoveFcmMessage extends FcmMessageWithIdentity {
-  @JsonKey(includeToJson: true, name: 'event')
+  @JsonKey(includeToJson: true)
   String get type => 'remove';
 
-  // Servers have sent zulipMessageIds, obsoleting the singular zulipMessageId
+  // Servers have sent zulip_message_ids, obsoleting the singular zulip_message_id
   // and just sending the first ID there redundantly, since 2019.
   // See zulip-mobile@4acd07376.
 
-  final List<int> zulipMessageIds;
+  @JsonKey(readValue: _readMessageIds)
+  final List<int> messageIds;
   // final String? zulipMessageId; // obsolete; ignore
 
   RemoveFcmMessage({
-    required super.server,
-    required super.realmId,
     required super.realmUrl,
     required super.userId,
-    required this.zulipMessageIds,
+    required this.messageIds,
   });
 
+  static Object? _readMessageIds(Map<dynamic, dynamic> json, String key) {
+    return json['message_ids']
+      ?? const _IntListConverter().fromJson(json['zulip_message_ids'] as String); // TODO(server-12)
+  }
+
   factory RemoveFcmMessage.fromJson(Map<String, dynamic> json) {
-    assert(json['event'] == 'remove');
+    assert((json['type'] ?? json['event']) == 'remove'); // TODO(server-12)
     return _$RemoveFcmMessageFromJson(json);
   }
 
   @override
-  Map<String, dynamic> toJson() {
-    final result = _$RemoveFcmMessageToJson(this);
-    result['realm_uri'] = realmUrl.toString(); // TODO(server-9): deprecated in FL 257
-    return result;
-  }
+  Map<String, dynamic> toJson() => _$RemoveFcmMessageToJson(this);
 }
 
 class _IntListConverter extends JsonConverter<List<int>, String> {
@@ -277,6 +286,12 @@ class _IntConverter extends JsonConverter<int, String> {
 
   @override
   String toJson(int value) => value.toString();
+}
+
+Object? _readIntOrString(Map<dynamic, dynamic> json, String key) {
+  final jsonValue = json[key];
+  if (jsonValue is String) return _parseInt(jsonValue);
+  return jsonValue;
 }
 
 int _parseInt(String string) => int.parse(string, radix: 10);

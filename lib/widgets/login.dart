@@ -179,21 +179,11 @@ class _AddAccountPageState extends State<AddAccountPage> {
       final GetServerSettingsResult serverSettings;
       try {
         final globalStore = GlobalStoreWidget.of(context);
-        final connection = globalStore.apiConnection(realmUrl: url!, zulipFeatureLevel: null);
-        try {
-          serverSettings = await getServerSettings(connection);
-          final zulipVersionData = ZulipVersionData.fromServerSettings(serverSettings);
-          if (zulipVersionData.isUnsupported) {
-            throw ServerVersionUnsupportedException(zulipVersionData);
-          }
-        } on MalformedServerResponseException catch (e) {
-          final zulipVersionData = ZulipVersionData.fromMalformedServerResponseException(e);
-          if (zulipVersionData != null && zulipVersionData.isUnsupported) {
-            throw ServerVersionUnsupportedException(zulipVersionData);
-          }
-          rethrow;
-        } finally {
-          connection.close();
+        serverSettings = await globalStore.fetchServerSettings(url!);
+
+        final zulipVersionData = ZulipVersionData.fromServerSettings(serverSettings);
+        if (zulipVersionData.isUnsupported) {
+          throw ServerVersionUnsupportedException(zulipVersionData);
         }
       } catch (e) {
         if (!context.mounted) return;
@@ -406,6 +396,8 @@ class _LoginPageState extends State<LoginPage> {
     try {
       accountId = await globalStore.insertAccount(AccountsCompanion.insert(
         realmUrl: realmUrl,
+        realmName: Value(widget.serverSettings.realmName),
+        realmIcon: Value(widget.serverSettings.realmIcon),
         email: email,
         apiKey: apiKey,
         userId: userId,
@@ -455,10 +447,10 @@ class _LoginPageState extends State<LoginPage> {
 
     final externalAuthenticationMethods = widget.serverSettings.externalAuthenticationMethods;
 
-    final loginForm = Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+    final loginContent = Column(mainAxisAlignment: MainAxisAlignment.center, children: [
       _UsernamePasswordForm(loginPageState: this),
       if (externalAuthenticationMethods.isNotEmpty) ...[
-        const OrDivider(),
+        _AlternativeAuthDivider(),
         ...externalAuthenticationMethods.map((method) {
           final icon = method.displayIcon;
           return OutlinedButton.icon(
@@ -495,7 +487,7 @@ class _LoginPageState extends State<LoginPage> {
               //   left or the right of this box
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 400),
-                child: loginForm))))));
+                child: loginContent))))));
   }
 }
 
@@ -662,9 +654,7 @@ class _UsernamePasswordFormState extends State<_UsernamePasswordForm> {
 }
 
 // Loosely based on the corresponding element in the web app.
-class OrDivider extends StatelessWidget {
-  const OrDivider({super.key});
-
+class _AlternativeAuthDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final zulipLocalizations = ZulipLocalizations.of(context);
@@ -675,17 +665,20 @@ class OrDivider extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-        divider,
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 5),
-          child: Text(zulipLocalizations.loginMethodDivider,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: designVariables.loginOrDividerText,
-              height: 1.5,
-            ).merge(weightVariableTextStyle(context, wght: 600)))),
-        divider,
-      ]));
+      child: Semantics(
+        excludeSemantics: true,
+        label: zulipLocalizations.loginMethodDividerSemanticLabel,
+        child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          divider,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 5),
+            child: Text(zulipLocalizations.loginMethodDivider,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: designVariables.loginOrDividerText,
+                height: 1.5,
+              ).merge(weightVariableTextStyle(context, wght: 600)))),
+          divider,
+        ])));
   }
 }

@@ -4,6 +4,7 @@ import '../api/model/model.dart';
 import '../api/route/channels.dart';
 import '../generated/l10n/zulip_localizations.dart';
 import '../model/narrow.dart';
+import '../model/topics.dart';
 import '../model/unreads.dart';
 import 'action_sheet.dart';
 import 'app_bar.dart';
@@ -14,6 +15,7 @@ import 'page.dart';
 import 'store.dart';
 import 'text.dart';
 import 'theme.dart';
+import 'counter_badge.dart';
 
 class TopicListPage extends StatelessWidget {
   const TopicListPage({super.key, required this.streamId});
@@ -123,56 +125,56 @@ class _TopicList extends StatefulWidget {
 }
 
 class _TopicListState extends State<_TopicList> with PerAccountStoreAwareStateMixin {
+  Topics? topicsModel;
   Unreads? unreadsModel;
-  // TODO(#1499): store the results on [ChannelStore], and keep them
-  //   up-to-date by handling events
-  List<GetStreamTopicsEntry>? lastFetchedTopics;
 
   @override
   void onNewStore() {
+    final newStore = PerAccountStoreWidget.of(context);
+    topicsModel?.removeListener(_modelChanged);
+    topicsModel = newStore.topics..addListener(_modelChanged);
     unreadsModel?.removeListener(_modelChanged);
-    final store = PerAccountStoreWidget.of(context);
-    unreadsModel = store.unreads..addListener(_modelChanged);
+    unreadsModel = newStore.unreads..addListener(_modelChanged);
     _fetchTopics();
   }
 
   @override
   void dispose() {
+    topicsModel?.removeListener(_modelChanged);
     unreadsModel?.removeListener(_modelChanged);
     super.dispose();
   }
 
   void _modelChanged() {
     setState(() {
-      // The actual state lives in `unreadsModel`.
+      // The actual state lives in `topicsModel` and `unreadsModel`.
     });
   }
 
   void _fetchTopics() async {
+    // If the fetch succeeds, `topicsModel` will notify listeners.
     // Do nothing when the fetch fails; the topic-list will stay on
     // the loading screen, until the user navigates away and back.
     // TODO(design) show a nice error message on screen when this fails
-    final store = PerAccountStoreWidget.of(context);
-    final result = await getStreamTopics(store.connection,
-      streamId: widget.streamId,
-      allowEmptyTopicName: true);
-    if (!mounted) return;
-    setState(() {
-      lastFetchedTopics = result.topics;
-    });
+    await topicsModel!.getChannelTopics(widget.streamId);
   }
 
   @override
   Widget build(BuildContext context) {
-    if (lastFetchedTopics == null) {
+    final channelTopics = topicsModel!.channelTopics(widget.streamId);
+    if (channelTopics == null) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    // TODO(design) handle the rare case when `lastFetchedTopics` is empty
+    if (channelTopics.isEmpty) {
+      final zulipLocalizations = ZulipLocalizations.of(context);
+      return PageBodyEmptyContentPlaceholder(
+        header: zulipLocalizations.topicListEmptyPlaceholderHeader);
+    }
 
     // This is adapted from parts of the build method on [_InboxPageState].
     final topicItems = <_TopicItemData>[];
-    for (final GetStreamTopicsEntry(:maxId, name: topic) in lastFetchedTopics!) {
+    for (final GetChannelTopicsEntry(:maxId, name: topic) in channelTopics) {
       final unreadMessageIds =
         unreadsModel!.streams[widget.streamId]?[topic] ?? <int>[];
       final countInTopic = unreadMessageIds.length;
@@ -182,17 +184,9 @@ class _TopicListState extends State<_TopicList> with PerAccountStoreAwareStateMi
         topic: topic,
         unreadCount: countInTopic,
         hasMention: hasMention,
-        // `lastFetchedTopics.maxId` can become outdated when a new message
-        // arrives or when there are message moves, until we re-fetch.
-        // TODO(#1499): track changes to this
         maxId: maxId,
       ));
     }
-    topicItems.sort((a, b) {
-      final aMaxId = a.maxId;
-      final bMaxId = b.maxId;
-      return bMaxId.compareTo(aMaxId);
-    });
 
     return SafeArea(
       // Don't pad the bottom here; we want the list content to do that.
@@ -235,6 +229,15 @@ class _TopicItem extends StatelessWidget {
     final store = PerAccountStoreWidget.of(context);
     final designVariables = DesignVariables.of(context);
 
+    // `maxId` might be incorrect (see [Topics.channelTopics]).
+    // Check if it refers to a message that's currently in the topic;
+    // if not, we just won't have `someMessageIdInTopic` for the action sheet.
+    final maxIdMessage = store.messages[maxId];
+    final someMessageIdInTopic =
+      (maxIdMessage != null && TopicNarrow(streamId, topic).containsMessage(maxIdMessage))
+        ? maxIdMessage.id
+        : null;
+
     final visibilityPolicy = store.topicVisibilityPolicy(streamId, topic);
     final double opacity;
     switch (visibilityPolicy) {
@@ -262,45 +265,53 @@ class _TopicItem extends StatelessWidget {
         onLongPress: () => showTopicActionSheet(context,
           channelId: streamId,
           topic: topic,
-          someMessageIdInTopic: maxId),
+          someMessageIdInTopic: someMessageIdInTopic),
         splashFactory: NoSplash.splashFactory,
-        child: Padding(padding: EdgeInsetsDirectional.fromSTEB(6, 8, 12, 8),
-          child: Row(
-            spacing: 8,
-            // In the Figma design, the text and icons on the topic item row
-            // are aligned to the start on the cross axis
-            // (i.e., `align-items: flex-start`).  The icons are padded down
-            // 2px relative to the start, to visibly sit on the baseline.
-            // To account for scaled text, we align everything on the row
-            // to [CrossAxisAlignment.center] instead ([Row]'s default),
-            // like we do for the topic items on the inbox page.
-            // TODO(#1528): align to baseline (and therefore to first line of
-            //   topic name), but with adjustment for icons
-            // CZO discussion:
-            //   https://chat.zulip.org/#narrow/channel/243-mobile-team/topic/topic.20list.20item.20alignment/near/2173252
-            children: [
-              // A null [Icon.icon] makes a blank space.
-              _IconMarker(icon: topic.isResolved ? ZulipIcons.check : null),
-              Expanded(child: Opacity(
-                opacity: opacity,
-                child: Text(
-                  style: TextStyle(
-                    fontSize: 17,
-                    height: 20 / 17,
-                    fontStyle: topic.displayName == null ? FontStyle.italic : null,
-                    color: designVariables.textMessage,
-                  ),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  topic.unresolve().displayName ?? store.realmEmptyTopicDisplayName))),
-              Opacity(opacity: opacity, child: Row(
-                spacing: 4,
-                children: [
-                  if (hasMention) const _IconMarker(icon: ZulipIcons.at_sign),
-                  if (visibilityIcon != null) _IconMarker(icon: visibilityIcon),
-                  if (unreadCount > 0) _UnreadCountBadge(count: unreadCount),
-                ])),
-            ]))));
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: 40),
+          child: Padding(
+            padding: EdgeInsetsDirectional.fromSTEB(6, 4, 12, 4),
+            child: Row(
+              spacing: 8,
+              // In the Figma design, the text and icons on the topic item row
+              // are aligned to the start on the cross axis
+              // (i.e., `align-items: flex-start`).  The icons are padded down
+              // 2px relative to the start, to visibly sit on the baseline.
+              // To account for scaled text, we align everything on the row
+              // to [CrossAxisAlignment.center] instead ([Row]'s default),
+              // like we do for the topic items on the inbox page.
+              // TODO(#1528): align to baseline (and therefore to first line of
+              //   topic name), but with adjustment for icons
+              // CZO discussion:
+              //   https://chat.zulip.org/#narrow/channel/243-mobile-team/topic/topic.20list.20item.20alignment/near/2173252
+              children: [
+                // A null [Icon.icon] makes a blank space.
+                _IconMarker(icon: topic.isResolved ? ZulipIcons.check : null),
+                Expanded(child: Opacity(
+                  opacity: opacity,
+                  child: Text(
+                    style: TextStyle(
+                      fontSize: 17,
+                      height: 20 / 17,
+                      fontStyle: topic.displayName == null ? FontStyle.italic : null,
+                      color: designVariables.textMessage,
+                    ),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    topic.unresolve().displayName ?? store.realmEmptyTopicDisplayName))),
+                Opacity(opacity: opacity, child: Row(
+                  spacing: 4,
+                  children: [
+                    if (hasMention) const _IconMarker(icon: ZulipIcons.at_sign),
+                    if (visibilityIcon != null) _IconMarker(icon: visibilityIcon),
+                    if (unreadCount > 0)
+                      CounterBadge(
+                        kind: CounterBadgeKind.unread,
+                        count: unreadCount,
+                        channelIdForBackground: null),
+                  ])),
+              ])),
+        )));
   }
 }
 
@@ -318,33 +329,5 @@ class _IconMarker extends StatelessWidget {
     return Icon(icon,
       size: textScaler.clamp(maxScaleFactor: 1.5).scale(16),
       color: designVariables.textMessage.withFadedAlpha(0.4));
-  }
-}
-
-// This is adapted from [UnreadCountBadge].
-// TODO(#1406) see if we can reuse this in redesign
-// TODO(#1527) see if we can reuse this in redesign
-class _UnreadCountBadge extends StatelessWidget {
-  const _UnreadCountBadge({required this.count});
-
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    final designVariables = DesignVariables.of(context);
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(5),
-        color: designVariables.bgCounterUnread,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        child: Text(count.toString(),
-          style: TextStyle(
-            fontSize: 15,
-            height: 16 / 15,
-            color: designVariables.labelCounterUnread,
-          ).merge(weightVariableTextStyle(context, wght: 500)))));
   }
 }

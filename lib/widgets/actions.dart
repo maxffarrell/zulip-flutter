@@ -7,9 +7,13 @@ import '../api/exception.dart';
 import '../api/model/model.dart';
 import '../api/model/narrow.dart';
 import '../api/route/messages.dart';
+import '../api/route/messages.dart' as messages_api;
+import '../api/route/channels.dart' as channels_api;
 import '../generated/l10n/zulip_localizations.dart';
 import '../model/binding.dart';
+import '../model/internal_link.dart';
 import '../model/narrow.dart';
+import '../model/realm.dart';
 import 'dialog.dart';
 import 'store.dart';
 
@@ -25,8 +29,40 @@ abstract final class ZulipAction {
   ///
   /// This is mostly a wrapper around [updateMessageFlagsStartingFromAnchor];
   /// for details on the UI feedback, see there.
+  ///
+  /// A confirmation dialog is shown if the narrow is a non-conversation narrow.
   static Future<void> markNarrowAsRead(BuildContext context, Narrow narrow) async {
     final zulipLocalizations = ZulipLocalizations.of(context);
+    final store = PerAccountStoreWidget.of(context);
+
+    // See link when deciding behavior for a new narrow:
+    // https://chat.zulip.org/#narrow/channel/48-mobile/topic/mark.20all.20messages.20as.20read/near/2261768
+    final shouldShowConfirmationDialog = switch (narrow) {
+      CombinedFeedNarrow()
+        || MentionsNarrow()
+        || StarredMessagesNarrow()
+        || KeywordSearchNarrow()
+        || ChannelNarrow() => true,
+      DmNarrow() || TopicNarrow() => false,
+    };
+    if (shouldShowConfirmationDialog) {
+      final unreadCount = store.unreads.countInNarrow(narrow);
+      const minDisplayCount = 10;
+      const displayCountStepSize = 25;
+      final displayCount = switch (unreadCount) {
+        (< minDisplayCount)      => null,
+        (< displayCountStepSize) => unreadCount,
+        _ => unreadCount - (unreadCount % displayCountStepSize),
+      };
+      final didConfirm = showSuggestedActionDialog(context: context,
+        title: displayCount == null
+          ? zulipLocalizations.markAllAsReadConfirmationDialogTitleNoCount
+          : zulipLocalizations.markAllAsReadConfirmationDialogTitle(displayCount),
+        message: zulipLocalizations.markAllAsReadConfirmationDialogMessage,
+        actionButtonText: zulipLocalizations.markAllAsReadConfirmationDialogConfirmButton);
+      if (await didConfirm.result != true) return;
+      if (!context.mounted) return;
+    }
 
     final didPass = await updateMessageFlagsStartingFromAnchor(
       context: context,
@@ -66,7 +102,6 @@ abstract final class ZulipAction {
     Message message,
     Narrow narrow,
   ) async {
-    assert(PerAccountStoreWidget.of(context).zulipFeatureLevel >= 155); // TODO(server-6)
     final zulipLocalizations = ZulipLocalizations.of(context);
     await updateMessageFlagsStartingFromAnchor(
       context: context,
@@ -238,6 +273,126 @@ abstract final class ZulipAction {
     }
 
     return fetchedMessage?.content;
+  }
+
+  /// Fetch and parse a URL from [messages_api.getFileTemporaryUrl];
+  /// on failure, show an error dialog and return null.
+  static Future<Uri?> getFileTemporaryUrl(BuildContext context, UserUploadLink link) async {
+    final zulipLocalizations = ZulipLocalizations.of(context);
+
+    String? resultUrl;
+    try {
+      final store = PerAccountStoreWidget.of(context);
+      resultUrl = (await messages_api.getFileTemporaryUrl(store.connection,
+        realmId: link.realmId, filename: link.path)).url;
+    } catch (e) {
+      if (!context.mounted) return null;
+      final errorMessage = switch (e) {
+        ZulipApiException() => e.message,
+        // TODO specific messages for common errors, like network errors
+        //   (support with reusable code)
+        _ => null,
+      };
+      showErrorDialog(context: context,
+        title: zulipLocalizations.errorCouldNotAccessUploadedFileTitle,
+        message: errorMessage);
+      return null;
+    }
+    if (!context.mounted) return null;
+
+    final tempUrl = PerAccountStoreWidget.of(context).tryResolveUrl(resultUrl);
+    if (tempUrl == null) {
+      showErrorDialog(context: context,
+        title: zulipLocalizations.errorCouldNotAccessUploadedFileTitle,
+        message: zulipLocalizations.errorInvalidResponse);
+      return null;
+    }
+
+    return tempUrl;
+  }
+
+  static Future<void> subscribeToChannel(BuildContext context, {
+    required int channelId,
+  }) async {
+    final store = PerAccountStoreWidget.of(context);
+    final channel = store.streams[channelId];
+    if (channel == null || channel is Subscription) return; // TODO could give feedback
+
+    try {
+      await channels_api.subscribeToChannel(store.connection, subscriptions: [channel.name]);
+    } catch (e) {
+      if (!context.mounted) return;
+
+      String? errorMessage;
+      switch (e) {
+        case ZulipApiException():
+          errorMessage = e.message;
+          // TODO(#741) specific messages for common errors, like network errors
+          //   (support with reusable code)
+        default:
+      }
+
+      final title = ZulipLocalizations.of(context).subscribeFailedTitle;
+      showErrorDialog(context: context, title: title, message: errorMessage);
+    }
+  }
+
+  /// Unsubscribe from a channel, possibly after a confirmation dialog,
+  /// showing an error dialog on failure.
+  ///
+  /// A confirmation dialog is shown if the user would not have permission
+  /// to resubscribe.
+  /// If [alwaysAsk] is true (the default),
+  /// a confirmation dialog is shown unconditionally.
+  static Future<void> unsubscribeFromChannel(BuildContext context, {
+    required int channelId,
+    bool alwaysAsk = true,
+  }) async {
+    final store = PerAccountStoreWidget.of(context);
+    final subscription = store.subscriptions[channelId];
+    if (subscription == null) return; // TODO could give feedback
+
+    // TODO(future) check if the self-user is a guest and the channel is not web-public
+    final couldResubscribe = !subscription.inviteOnly
+      || store.selfHasPermissionForGroupSetting(subscription.canSubscribeGroup,
+           GroupSettingType.stream, 'can_subscribe_group');
+    final zulipLocalizations = ZulipLocalizations.of(context);
+    if (!couldResubscribe) {
+      // TODO(#1788) warn if org would lose content access (nobody can subscribe)
+
+      final dialog = showSuggestedActionDialog(context: context,
+        title: zulipLocalizations.unsubscribeConfirmationDialogTitle('#${subscription.name}'),
+        message: zulipLocalizations.unsubscribeConfirmationDialogMessageCannotResubscribe,
+        destructiveActionButton: true,
+        actionButtonText: zulipLocalizations.unsubscribeConfirmationDialogConfirmButton);
+      if (await dialog.result != true) return;
+      if (!context.mounted) return;
+    } else if (alwaysAsk) {
+      final dialog = showSuggestedActionDialog(context: context,
+        title: zulipLocalizations.unsubscribeConfirmationDialogTitle('#${subscription.name}'),
+        actionButtonText: zulipLocalizations.unsubscribeConfirmationDialogConfirmButton);
+      if (await dialog.result != true) return;
+      if (!context.mounted) return;
+    }
+
+    try {
+      await channels_api.unsubscribeFromChannel(PerAccountStoreWidget.of(context).connection,
+        subscriptions: [subscription.name]);
+    } catch (e) {
+      if (!context.mounted) return;
+
+      String? errorMessage;
+      switch (e) {
+        case ZulipApiException():
+          errorMessage = e.message;
+          // TODO(#741) specific messages for common errors, like network errors
+          //   (support with reusable code)
+        default:
+      }
+
+      final title = ZulipLocalizations.of(context).unsubscribeFailedTitle;
+      showErrorDialog(context: context, title: title, message: errorMessage);
+    }
   }
 }
 

@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:zulip/api/model/events.dart';
 import 'package:zulip/api/model/model.dart';
+import 'package:zulip/api/model/narrow.dart';
 import 'package:zulip/api/route/channels.dart';
 import 'package:zulip/api/route/messages.dart';
 import 'package:zulip/model/localizations.dart';
@@ -34,6 +35,8 @@ import '../api/fake_api.dart';
 import '../example_data.dart' as eg;
 import '../flutter_checks.dart';
 import '../model/binding.dart';
+import '../model/content_test.dart';
+import '../model/message_list_test.dart';
 import '../model/store_checks.dart';
 import '../model/test_store.dart';
 import '../model/typing_status_test.dart';
@@ -58,11 +61,15 @@ void main() {
     required Narrow narrow,
     User? selfUser,
     List<User> otherUsers = const [],
-    List<ZulipStream> streams = const [],
+    List<ZulipStream>? streams,
+    List<Subscription> subscriptions = const [],
     List<Message>? messages,
     bool? mandatoryTopics,
     int? zulipFeatureLevel,
+    int? maxTopicLength,
   }) async {
+    streams ??= subscriptions;
+
     if (narrow case ChannelNarrow(:var streamId) || TopicNarrow(: var streamId)) {
       final channel = streams.firstWhereOrNull((s) => s.streamId == streamId);
       assert(channel != null,
@@ -70,7 +77,7 @@ void main() {
       if (narrow is ChannelNarrow) {
         // By default, bypass the complexity where the topic input is autofocused
         // on an empty fetch, by making the fetch not empty. (In particular that
-        // complexity includes a getStreamTopics fetch for topic autocomplete.)
+        // complexity includes a getChannelTopics fetch for topic autocomplete.)
         messages ??= [eg.streamMessage(stream: channel)];
       }
     }
@@ -82,10 +89,12 @@ void main() {
     await testBinding.globalStore.add(selfAccount, eg.initialSnapshot(
       realmUsers: [selfUser, ...otherUsers],
       streams: streams,
+      subscriptions: subscriptions,
       zulipFeatureLevel: zulipFeatureLevel,
       realmMandatoryTopics: mandatoryTopics,
       realmAllowMessageEditing: true,
       realmMessageContentEditLimitSeconds: null,
+      maxTopicLength: maxTopicLength,
     ));
 
     store = await testBinding.globalStore.perAccount(selfAccount.id);
@@ -95,8 +104,8 @@ void main() {
     connection.prepare(json:
       eg.newestGetMessagesResult(foundOldest: true, messages: messages).toJson());
     if (narrow is ChannelNarrow && messages.isEmpty) {
-      // The topic input will autofocus, triggering a getStreamTopics request.
-      connection.prepare(json: GetStreamTopicsResult(topics: []).toJson());
+      // The topic input will autofocus, triggering a getChannelTopics request.
+      connection.prepare(json: GetChannelTopicsResult(topics: []).toJson());
     }
     await tester.pumpWidget(TestZulipApp(accountId: selfAccount.id,
       child: MessageListPage(initNarrow: narrow)));
@@ -119,7 +128,7 @@ void main() {
     required String topic,
   }) async {
     connection.prepare(body:
-      jsonEncode(GetStreamTopicsResult(topics: [eg.getStreamTopicsEntry()]).toJson()));
+      jsonEncode(GetChannelTopicsResult(topics: [eg.getChannelTopicsEntry()]).toJson()));
     await tester.enterText(topicInputFinder, topic);
     check(connection.takeRequests()).single
       ..method.equals('GET')
@@ -155,7 +164,7 @@ void main() {
       final channel = eg.stream();
       await prepareComposeBox(tester,
         narrow: ChannelNarrow(channel.streamId),
-        streams: [channel],
+        subscriptions: [eg.subscription(channel)],
         messages: [eg.streamMessage(stream: channel)]);
       check(controller).isA<StreamComposeBoxController>()
         ..topicFocusNode.hasFocus.isFalse()
@@ -166,7 +175,7 @@ void main() {
       final channel = eg.stream();
       await prepareComposeBox(tester,
         narrow: ChannelNarrow(channel.streamId),
-        streams: [channel],
+        subscriptions: [eg.subscription(channel)],
         messages: []);
       check(controller).isA<StreamComposeBoxController>()
         .topicFocusNode.hasFocus.isTrue();
@@ -176,7 +185,7 @@ void main() {
       final channel = eg.stream();
       await prepareComposeBox(tester,
         narrow: TopicNarrow(channel.streamId, eg.t('topic')),
-        streams: [channel],
+        subscriptions: [eg.subscription(channel)],
         messages: [eg.streamMessage(stream: channel, topic: 'topic')]);
       check(controller).isNotNull().contentFocusNode.hasFocus.isFalse();
     });
@@ -185,7 +194,7 @@ void main() {
       final channel = eg.stream();
       await prepareComposeBox(tester,
         narrow: TopicNarrow(channel.streamId, eg.t('topic')),
-        streams: [channel],
+        subscriptions: [eg.subscription(channel)],
         messages: []);
       check(controller).isNotNull().contentFocusNode.hasFocus.isTrue();
     });
@@ -200,9 +209,11 @@ void main() {
     });
 
     testWidgets('DmNarrow, empty fetch', (tester) async {
+      final user = eg.user();
       await prepareComposeBox(tester,
         selfUser: eg.selfUser,
-        narrow: DmNarrow.withUser(eg.user().userId, selfUserId: eg.selfUser.userId),
+        otherUsers: [user],
+        narrow: DmNarrow.withUser(user.userId, selfUserId: eg.selfUser.userId),
         messages: []);
       check(controller).isNotNull().contentFocusNode.hasFocus.isTrue();
     });
@@ -248,7 +259,8 @@ void main() {
       /// In expectedValue, represent the collapsed selection as "^".
       void testInsertPadded(String description, String valueBefore, String textToInsert, String expectedValue) {
         test(description, () {
-          final controller = ComposeContentController();
+          store = eg.store();
+          final controller = ComposeContentController(store: store);
           controller.value = parseMarkedText(valueBefore);
           controller.insertPadded(textToInsert);
           check(controller.value).equals(parseMarkedText(expectedValue));
@@ -329,7 +341,8 @@ void main() {
       }
 
       testWidgets('requireNotEmpty: true (default)', (tester) async {
-        controller = ComposeContentController();
+        store = eg.store();
+        controller = ComposeContentController(store: store);
         addTearDown(controller.dispose);
         checkCountsAsEmpty('', true);
         checkCountsAsEmpty(' ', true);
@@ -337,7 +350,8 @@ void main() {
       });
 
       testWidgets('requireNotEmpty: false', (tester) async {
-        controller = ComposeContentController(requireNotEmpty: false);
+        store = eg.store();
+        controller = ComposeContentController(store: store, requireNotEmpty: false);
         addTearDown(controller.dispose);
         checkCountsAsEmpty('', false);
         checkCountsAsEmpty(' ', false);
@@ -374,7 +388,7 @@ void main() {
         addTearDown(MessageStoreImpl.debugReset);
 
         final narrow = ChannelNarrow(channel.streamId);
-        await prepareComposeBox(tester, narrow: narrow, streams: [channel]);
+        await prepareComposeBox(tester, narrow: narrow, subscriptions: [eg.subscription(channel)]);
         await enterTopic(tester, narrow: narrow, topic: 'some topic');
         await enterContent(tester, content);
       }
@@ -406,40 +420,43 @@ void main() {
     });
 
     group('topic', () {
-      Future<void> prepareWithTopic(WidgetTester tester, String topic) async {
+      Future<void> prepareWithTopic(WidgetTester tester, String topic, {
+        required int maxTopicLength,
+      }) async {
         TypingNotifier.debugEnable = false;
         addTearDown(TypingNotifier.debugReset);
         MessageStoreImpl.debugOutboxEnable = false;
         addTearDown(MessageStoreImpl.debugReset);
 
         final narrow = ChannelNarrow(channel.streamId);
-        await prepareComposeBox(tester, narrow: narrow, streams: [channel]);
+        await prepareComposeBox(tester, narrow: narrow, subscriptions: [eg.subscription(channel)],
+          maxTopicLength: maxTopicLength);
         await enterTopic(tester, narrow: narrow, topic: topic);
         await enterContent(tester, 'some content');
       }
 
-      Future<void> checkErrorResponse(WidgetTester tester) async {
+      Future<void> checkErrorResponse(WidgetTester tester, {required int maxTopicLength}) async {
         await tester.tap(find.byWidget(checkErrorDialog(tester,
           expectedTitle: 'Message not sent',
-          expectedMessage: 'Topic length shouldn\'t be greater than 60 characters.')));
+          expectedMessage: 'Topic length shouldn\'t be greater than $maxTopicLength ${maxTopicLength == 1 ? 'character' : 'characters'}.')));
       }
 
       testWidgets('too-long topic is rejected', (tester) async {
-        await prepareWithTopic(tester,
-          makeStringWithCodePoints(kMaxTopicLengthCodePoints + 1));
+        await prepareWithTopic(tester, makeStringWithCodePoints(37 + 1),
+          maxTopicLength: 37);
         await tapSendButton(tester);
-        await checkErrorResponse(tester);
+        await checkErrorResponse(tester, maxTopicLength: 37);
       });
 
       testWidgets('max-length topic not rejected', (tester) async {
-        await prepareWithTopic(tester,
-          makeStringWithCodePoints(kMaxTopicLengthCodePoints));
+        await prepareWithTopic(tester, makeStringWithCodePoints(37),
+          maxTopicLength: 37);
         await tapSendButton(tester);
         checkNoDialog(tester);
       });
 
       testWidgets('code points not counted unnecessarily', (tester) async {
-        await prepareWithTopic(tester, 'a' * kMaxTopicLengthCodePoints);
+        await prepareWithTopic(tester, 'a' * 37, maxTopicLength: 37);
         check((controller as StreamComposeBoxController)
           .topic.debugLengthUnicodeCodePointsIfLong).isNull();
       });
@@ -457,7 +474,7 @@ void main() {
       await prepareComposeBox(tester,
         narrow: narrow,
         otherUsers: [eg.otherUser, eg.thirdUser],
-        streams: [channel],
+        subscriptions: [eg.subscription(channel)],
         mandatoryTopics: mandatoryTopics,
         zulipFeatureLevel: zulipFeatureLevel);
     }
@@ -686,7 +703,7 @@ void main() {
       await prepare(tester, narrow: DmNarrow.withUser(
         eg.selfUser.userId, selfUserId: eg.selfUser.userId));
       checkComposeBoxHintTexts(tester,
-        contentHintText: 'Jot down something');
+        contentHintText: 'Write yourself a note');
     });
 
     testWidgets('to 1:1 DmNarrow', (tester) async {
@@ -731,14 +748,14 @@ void main() {
     testWidgets('_StreamComposeBox', (tester) async {
       final channel = eg.stream();
       await prepareComposeBox(tester,
-        narrow: ChannelNarrow(channel.streamId), streams: [channel]);
+        narrow: ChannelNarrow(channel.streamId), subscriptions: [eg.subscription(channel)]);
       checkComposeBoxTextFields(tester, expectTopicTextField: true);
     });
 
     testWidgets('_FixedDestinationComposeBox', (tester) async {
       final channel = eg.stream();
       await prepareComposeBox(tester,
-        narrow: eg.topicNarrow(channel.streamId, 'topic'), streams: [channel]);
+        narrow: eg.topicNarrow(channel.streamId, 'topic'), subscriptions: [eg.subscription(channel)]);
       checkComposeBoxTextFields(tester, expectTopicTextField: false);
     });
   });
@@ -757,7 +774,8 @@ void main() {
     }
 
     testWidgets('smoke TopicNarrow', (tester) async {
-      await prepareComposeBox(tester, narrow: narrow, streams: [channel]);
+      await prepareComposeBox(tester,
+        narrow: narrow, subscriptions: [eg.subscription(channel)]);
 
       await checkStartTyping(tester, narrow);
 
@@ -769,7 +787,7 @@ void main() {
     testWidgets('smoke DmNarrow', (tester) async {
       final narrow = DmNarrow.withUsers(
         [eg.otherUser.userId], selfUserId: eg.selfUser.userId);
-      await prepareComposeBox(tester, narrow: narrow);
+      await prepareComposeBox(tester, narrow: narrow, otherUsers: [eg.otherUser]);
 
       await checkStartTyping(tester, narrow);
 
@@ -781,7 +799,8 @@ void main() {
     testWidgets('smoke ChannelNarrow', (tester) async {
       final narrow = ChannelNarrow(channel.streamId);
       final destinationNarrow = eg.topicNarrow(narrow.streamId, 'test topic');
-      await prepareComposeBox(tester, narrow: narrow, streams: [channel]);
+      await prepareComposeBox(tester,
+        narrow: narrow, subscriptions: [eg.subscription(channel)]);
       await enterTopic(tester, narrow: narrow, topic: 'test topic');
 
       await checkStartTyping(tester, destinationNarrow);
@@ -792,7 +811,8 @@ void main() {
     });
 
     testWidgets('clearing text sends a "typing stopped" notice', (tester) async {
-      await prepareComposeBox(tester, narrow: narrow, streams: [channel]);
+      await prepareComposeBox(tester,
+        narrow: narrow, subscriptions: [eg.subscription(channel)]);
 
       await checkStartTyping(tester, narrow);
 
@@ -804,7 +824,8 @@ void main() {
     testWidgets('hitting send button sends a "typing stopped" notice', (tester) async {
       MessageStoreImpl.debugOutboxEnable = false;
       addTearDown(MessageStoreImpl.debugReset);
-      await prepareComposeBox(tester, narrow: narrow, streams: [channel]);
+      await prepareComposeBox(tester,
+        narrow: narrow, subscriptions: [eg.subscription(channel)]);
 
       await checkStartTyping(tester, narrow);
 
@@ -850,7 +871,8 @@ void main() {
     testWidgets('for content input, unfocusing sends a "typing stopped" notice', (tester) async {
       final narrow = ChannelNarrow(channel.streamId);
       final destinationNarrow = eg.topicNarrow(narrow.streamId, 'test topic');
-      await prepareComposeBox(tester, narrow: narrow, streams: [channel]);
+      await prepareComposeBox(tester,
+        narrow: narrow, subscriptions: [eg.subscription(channel)]);
       await enterTopic(tester, narrow: narrow, topic: 'test topic');
 
       await checkStartTyping(tester, destinationNarrow);
@@ -862,7 +884,8 @@ void main() {
     });
 
     testWidgets('selection change sends a "typing started" notice', (tester) async {
-      await prepareComposeBox(tester, narrow: narrow, streams: [channel]);
+      await prepareComposeBox(tester,
+        narrow: narrow, subscriptions: [eg.subscription(channel)]);
 
       await checkStartTyping(tester, narrow);
 
@@ -882,7 +905,8 @@ void main() {
     });
 
     testWidgets('unfocusing app sends a "typing stopped" notice', (tester) async {
-      await prepareComposeBox(tester, narrow: narrow, streams: [channel]);
+      await prepareComposeBox(tester,
+        narrow: narrow, subscriptions: [eg.subscription(channel)]);
 
       await checkStartTyping(tester, narrow);
 
@@ -914,8 +938,9 @@ void main() {
       addTearDown(MessageStoreImpl.debugReset);
 
       final zulipLocalizations = GlobalLocalizations.zulipLocalizations;
-      await prepareComposeBox(tester, narrow: eg.topicNarrow(123, 'some topic'),
-        streams: [eg.stream(streamId: 123)]);
+      await prepareComposeBox(tester,
+        narrow: eg.topicNarrow(123, 'some topic'),
+        subscriptions: [eg.subscription(eg.stream(streamId: 123))]);
 
       await enterContent(tester, 'hello world');
 
@@ -954,6 +979,59 @@ void main() {
           'You do not have permission to initiate direct message conversations.'),
       )));
     });
+
+    testWidgets('if channel is unsubscribed, refresh on message-send success', (tester) async {
+      // Regression test for the "first buggy behavior"
+      // in https://github.com/zulip/zulip-flutter/issues/1798 .
+      TypingNotifier.debugEnable = false;
+      addTearDown(TypingNotifier.debugReset);
+      assert(MessageStoreImpl.debugOutboxEnable);
+
+      final channel = eg.stream();
+      final narrow = eg.topicNarrow(channel.streamId, 'some topic');
+      final messages = [eg.streamMessage(stream: channel, topic: 'some topic')];
+      final zulipLocalizations = GlobalLocalizations.zulipLocalizations;
+      await prepareComposeBox(tester,
+        narrow: narrow,
+        streams: [channel],
+        messages: messages);
+      assert(store.subscriptions[channel.streamId] == null);
+
+      await enterContent(tester, 'hello world');
+
+      connection.prepare(
+        json: SendMessageResult(id: 456).toJson(), delay: Duration(seconds: 1));
+      await tester.tap(find.byTooltip(zulipLocalizations.composeBoxSendTooltip));
+      await tester.pump(Duration(milliseconds: 500));
+      check(connection.takeRequests()).single.isA<http.Request>()
+        ..method.equals('POST')
+        ..url.path.equals('/api/v1/messages');
+
+      final newMessage = eg.streamMessage(
+        stream: channel, topic: 'some topic',
+        content: '<p>hello world</p>');
+      connection.prepare(json: eg.newestGetMessagesResult(
+        foundOldest: true, messages: [...messages, newMessage]).toJson());
+      await tester.pump(Duration(milliseconds: 500));
+      check(connection.lastRequest).isA<http.Request>()
+        ..method.equals('GET')
+        ..url.path.equals('/api/v1/messages')
+        ..url.queryParameters.deepEquals({
+          'narrow': jsonEncode(resolveApiNarrowForServer(
+            narrow.apiEncode(), connection.zulipFeatureLevel!)),
+          'anchor': 'newest',
+          'num_before': '100',
+          'num_after': '100',
+          'allow_empty_topic_name': 'true',
+        });
+      check(find.descendant(
+        of: find.byType(MessageWithPossibleSender),
+        matching: find.text('hello world'))
+      ).findsOne();
+      // Regression coverage for the "third buggy behavior"
+      // in https://github.com/zulip/zulip-flutter/issues/1798 .
+      check(find.byType(OutboxMessageWithPossibleSender)).findsNothing();
+    });
   });
 
   group('sending to empty topic', () {
@@ -972,7 +1050,7 @@ void main() {
       channel = eg.stream();
       final narrow = ChannelNarrow(channel.streamId);
       await prepareComposeBox(tester,
-        narrow: narrow, streams: [channel],
+        narrow: narrow, subscriptions: [eg.subscription(channel)],
         mandatoryTopics: mandatoryTopics,
         zulipFeatureLevel: zulipFeatureLevel);
 
@@ -1052,7 +1130,8 @@ void main() {
 
       final channel = eg.stream();
       final narrow = ChannelNarrow(channel.streamId);
-      await prepareComposeBox(tester, narrow: narrow, streams: [channel]);
+      await prepareComposeBox(tester,
+        narrow: narrow, subscriptions: [eg.subscription(channel)]);
 
       // (When we check that the send button looks disabled, it should be because
       // the file is uploading, not a pre-existing reason.)
@@ -1170,7 +1249,8 @@ void main() {
 
       final channel = eg.stream();
       final narrow = eg.topicNarrow(channel.streamId, 'a topic');
-      await prepareComposeBox(tester, narrow: narrow, streams: [channel]);
+      await prepareComposeBox(tester,
+        narrow: narrow, subscriptions: [eg.subscription(channel)]);
 
       testBinding.pickFilesResult = FilePickerResult([PlatformFile(
         readStream: Stream.fromIterable(['asdf'.codeUnits]),
@@ -1322,7 +1402,7 @@ void main() {
 
     group('in DMs with deactivated users', () {
       void checkComposeBox({required bool isShown}) => checkComposeBoxIsShown(isShown,
-        bannerLabel: zulipLocalizations.errorBannerDeactivatedDmLabel);
+        bannerLabel: zulipLocalizations.composeBoxBannerLabelDeactivatedDmRecipient);
 
       Future<void> changeUserStatus(WidgetTester tester,
           {required User user, required bool isActive}) async {
@@ -1403,42 +1483,168 @@ void main() {
       });
     });
 
+    testWidgets('channel without content access (channel narrow)', (tester) async {
+      final channel = eg.stream(
+        inviteOnly: true,
+        canSubscribeGroup: GroupSettingValueNamed(eg.nobodyGroup.id),
+        canAddSubscribersGroup: GroupSettingValueNamed(eg.nobodyGroup.id));
+      await prepareComposeBox(tester,
+        narrow: ChannelNarrow(channel.streamId),
+        streams: [channel],
+        subscriptions: []);
+      checkComposeBoxIsShown(false,
+        bannerLabel: zulipLocalizations.composeBoxBannerLabelCannotSendUnspecifiedReason);
+    });
+
+    testWidgets('channel without content access (topic narrow)', (tester) async {
+      final channel = eg.stream(
+        inviteOnly: true,
+        canSubscribeGroup: GroupSettingValueNamed(eg.nobodyGroup.id),
+        canAddSubscribersGroup: GroupSettingValueNamed(eg.nobodyGroup.id));
+      await prepareComposeBox(tester,
+        narrow: eg.topicNarrow(channel.streamId, 'some topic'),
+        streams: [channel],
+        subscriptions: []);
+      checkComposeBoxIsShown(false,
+        bannerLabel: zulipLocalizations.composeBoxBannerLabelCannotSendUnspecifiedReason);
+    });
+
     group('in channel/topic narrow according to channel post policy', () {
       void checkComposeBox({required bool isShown}) => checkComposeBoxIsShown(isShown,
-        bannerLabel: zulipLocalizations.errorBannerCannotPostInChannelLabel);
+        bannerLabel: zulipLocalizations.composeBoxBannerLabelCannotSendInChannel);
 
-      final narrowTestCases = [
-        ('channel', const ChannelNarrow(1)),
-        ('topic',   eg.topicNarrow(1, 'topic')),
-      ];
+      const channelNarrow = ChannelNarrow(1);
+      final topicNarrow = eg.topicNarrow(1, 'topic');
 
-      for (final (String narrowType, Narrow narrow) in narrowTestCases) {
-        testWidgets('compose box is shown in $narrowType narrow', (tester) async {
+      void testComposeBoxShown({
+        required Narrow narrow,
+        required bool isChannelSubscribed,
+        required bool canSend,
+        required bool expected,
+      }) {
+        final description = [
+          narrow.toString(),
+          'channel subscribed? $isChannelSubscribed',
+          'can send?: $canSend',
+        ].join(', ');
+        testWidgets(description, (tester) async {
+          final channel = eg.stream(streamId: 1,
+            channelPostPolicy: ChannelPostPolicy.moderators);
           await prepareComposeBox(tester,
             narrow: narrow,
-            selfUser: eg.user(role: UserRole.administrator),
-            streams: [eg.stream(streamId: 1,
-              channelPostPolicy: ChannelPostPolicy.moderators)]);
-          checkComposeBox(isShown: true);
-        });
-
-        testWidgets('error banner is shown in $narrowType narrow', (tester) async {
-          await prepareComposeBox(tester,
-            narrow: narrow,
-            selfUser: eg.user(role: UserRole.moderator),
-            streams: [eg.stream(streamId: 1,
-              channelPostPolicy: ChannelPostPolicy.administrators)]);
-          checkComposeBox(isShown: false);
+            selfUser: eg.user(
+              role: canSend ? UserRole.administrator : UserRole.member),
+            streams: [channel],
+            subscriptions: isChannelSubscribed ? [eg.subscription(channel)] : []);
+          checkComposeBoxIsShown(expected,
+            bannerLabel: isChannelSubscribed
+              ? zulipLocalizations.composeBoxBannerLabelCannotSendInChannel
+              : zulipLocalizations.composeBoxBannerLabelUnsubscribedWhenCannotSend);
         });
       }
+
+      testComposeBoxShown(
+        narrow: channelNarrow,
+        isChannelSubscribed: true,
+        canSend: true,
+        expected: true);
+
+      testComposeBoxShown(
+        narrow: channelNarrow,
+        isChannelSubscribed: false,
+        canSend: true,
+        expected: true);
+
+      testComposeBoxShown(
+        narrow: channelNarrow,
+        isChannelSubscribed: true,
+        canSend: false,
+        expected: false);
+
+      testComposeBoxShown(
+        narrow: channelNarrow,
+        isChannelSubscribed: false,
+        canSend: false,
+        expected: false);
+
+      testComposeBoxShown(
+        narrow: topicNarrow,
+        isChannelSubscribed: false,
+        canSend: false,
+        expected: false);
+
+      void testRefreshSubscribeButtons({required Narrow narrow, required bool canSendMessages}) {
+        testWidgets('Refresh/Subscribe buttons; ${canSendMessages ? 'with' : 'without'} send-message permission; $narrow', (tester) async {
+          final channel = eg.stream(streamId: 1,
+            canSendMessageGroup: canSendMessages
+              ? eg.groupSetting(members: [eg.selfUser.userId])
+              : eg.groupSetting(members: []));
+          final messages = List.generate(100, (i) => eg.streamMessage(id: 1000 + i,
+            stream: channel, topic: topicNarrow.topic.apiName));
+
+          await prepareComposeBox(tester,
+            narrow: ChannelNarrow(channel.streamId),
+            selfUser: eg.selfUser,
+            streams: [channel],
+            subscriptions: [],
+            messages: messages);
+          checkComposeBoxParts(areShown: canSendMessages);
+          checkBannerWithLabel(isShown: true, canSendMessages
+            ? zulipLocalizations.composeBoxBannerLabelUnsubscribed
+            : zulipLocalizations.composeBoxBannerLabelUnsubscribedWhenCannotSend);
+          final model = MessageListPage.ancestorOf(state.context).model!;
+          check(model)
+            ..fetched.isTrue()..messages.length.equals(100);
+
+          connection.prepare(json:
+            eg.newestGetMessagesResult(foundOldest: true, messages: messages).toJson(),
+            delay: Duration(seconds: 1));
+          await tester.tap(find.widgetWithText(ZulipWebUiKitButton, 'Refresh'));
+          await tester.pump();
+          check(model)
+            ..fetched.isFalse()..messages.length.equals(0);
+          await tester.pump(Duration(seconds: 1));
+          check(model)
+            ..fetched.isTrue()..messages.length.equals(100);
+
+          connection.takeRequests();
+
+          // prepare subscribe request, then refresh (get-messages) request
+          connection
+            ..prepare(json: {}, delay: Duration(milliseconds: 500))
+            ..prepare(json:
+                eg.newestGetMessagesResult(foundOldest: true, messages: messages).toJson(),
+                delay: Duration(seconds: 1));
+          await tester.tap(find.widgetWithText(ZulipWebUiKitButton, 'Subscribe'));
+          await tester.pump();
+          await tester.pump(Duration.zero);
+          check(connection.lastRequest).isA<http.Request>()
+            ..method.equals('POST')
+            ..url.path.equals('/api/v1/users/me/subscriptions')
+            ..bodyFields.deepEquals({
+              'subscriptions': jsonEncode([{'name': channel.name}]),
+            });
+          await tester.pump(Duration(milliseconds: 500));
+          check(model)
+            ..fetched.isFalse()..messages.length.equals(0);
+          await tester.pump(Duration(seconds: 1));
+          check(model)
+            ..fetched.isTrue()..messages.length.equals(100);
+        });
+      }
+
+      testRefreshSubscribeButtons(narrow: channelNarrow, canSendMessages: false);
+      testRefreshSubscribeButtons(narrow: topicNarrow, canSendMessages: false);
+      testRefreshSubscribeButtons(narrow: channelNarrow, canSendMessages: true);
+      testRefreshSubscribeButtons(narrow: topicNarrow, canSendMessages: true);
 
       testWidgets('user loses privilege -> compose box is replaced with the banner', (tester) async {
         final selfUser = eg.user(role: UserRole.administrator);
         await prepareComposeBox(tester,
           narrow: const ChannelNarrow(1),
           selfUser: selfUser,
-          streams: [eg.stream(streamId: 1,
-            channelPostPolicy: ChannelPostPolicy.administrators)]);
+          subscriptions: [eg.subscription(eg.stream(streamId: 1,
+            channelPostPolicy: ChannelPostPolicy.administrators))]);
         checkComposeBox(isShown: true);
 
         await store.handleEvent(RealmUserUpdateEvent(id: 1,
@@ -1452,8 +1658,8 @@ void main() {
         await prepareComposeBox(tester,
           narrow: const ChannelNarrow(1),
           selfUser: selfUser,
-          streams: [eg.stream(streamId: 1,
-            channelPostPolicy: ChannelPostPolicy.moderators)]);
+          subscriptions: [eg.subscription(eg.stream(streamId: 1,
+            channelPostPolicy: ChannelPostPolicy.moderators))]);
         checkComposeBox(isShown: false);
 
         await store.handleEvent(RealmUserUpdateEvent(id: 1,
@@ -1470,7 +1676,7 @@ void main() {
         await prepareComposeBox(tester,
           narrow: const ChannelNarrow(1),
           selfUser: selfUser,
-          streams: [channel]);
+          subscriptions: [eg.subscription(channel)]);
         checkComposeBox(isShown: true);
 
         await store.handleEvent(eg.channelUpdateEvent(channel,
@@ -1488,7 +1694,7 @@ void main() {
         await prepareComposeBox(tester,
           narrow: const ChannelNarrow(1),
           selfUser: selfUser,
-          streams: [channel]);
+          subscriptions: [eg.subscription(channel)]);
         checkComposeBox(isShown: false);
 
         await store.handleEvent(eg.channelUpdateEvent(channel,
@@ -1532,7 +1738,8 @@ void main() {
     }
 
     testWidgets('normal text scale factor', (tester) async {
-      await prepareComposeBox(tester, narrow: narrow, streams: [stream]);
+      await prepareComposeBox(tester,
+        narrow: narrow, subscriptions: [eg.subscription(stream)]);
 
       await checkContentInputMaxHeight(tester,
         maxHeight: verticalPadding + 170, maxVisibleLines: 8);
@@ -1541,7 +1748,8 @@ void main() {
     testWidgets('lower text scale factor', (tester) async {
       tester.platformDispatcher.textScaleFactorTestValue = 0.8;
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-      await prepareComposeBox(tester, narrow: narrow, streams: [stream]);
+      await prepareComposeBox(tester,
+        narrow: narrow, subscriptions: [eg.subscription(stream)]);
       await checkContentInputMaxHeight(tester,
         maxHeight: verticalPadding + 170 * 0.8, maxVisibleLines: 8);
     });
@@ -1549,7 +1757,8 @@ void main() {
     testWidgets('higher text scale factor', (tester) async {
       tester.platformDispatcher.textScaleFactorTestValue = 1.5;
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-      await prepareComposeBox(tester, narrow: narrow, streams: [stream]);
+      await prepareComposeBox(tester,
+        narrow: narrow, subscriptions: [eg.subscription(stream)]);
       await checkContentInputMaxHeight(tester,
         maxHeight: verticalPadding + 170 * 1.5, maxVisibleLines: 8);
     });
@@ -1557,7 +1766,8 @@ void main() {
     testWidgets('higher text scale factor exceeding threshold', (tester) async {
       tester.platformDispatcher.textScaleFactorTestValue = 2;
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-      await prepareComposeBox(tester, narrow: narrow, streams: [stream]);
+      await prepareComposeBox(tester,
+        narrow: narrow, subscriptions: [eg.subscription(stream)]);
       await checkContentInputMaxHeight(tester,
         maxHeight: verticalPadding + 170 * 1.5, maxVisibleLines: 6);
     });
@@ -1572,7 +1782,8 @@ void main() {
 
       final channel = eg.stream();
       await prepareComposeBox(tester,
-        narrow: eg.topicNarrow(channel.streamId, 'topic'), streams: [channel]);
+        narrow: eg.topicNarrow(channel.streamId, 'topic'),
+        subscriptions: [eg.subscription(channel)]);
 
       await enterContent(tester, 'some content');
       checkContentInputValue(tester, 'some content');
@@ -1645,6 +1856,7 @@ void main() {
     final (actionButton, cancelButton) = checkSuggestedActionDialog(tester,
       expectedTitle: 'Discard the message you’re writing?',
       expectedMessage: expectedMessage,
+      expectDestructiveActionButton: true,
       expectedActionButtonText: 'Discard');
     if (shouldContinue) {
       await tester.tap(find.byWidget(actionButton));
@@ -1669,10 +1881,12 @@ void main() {
       TypingNotifier.debugEnable = false;
       addTearDown(TypingNotifier.debugReset);
       await prepareComposeBox(tester,
-        narrow: narrow, streams: [channel], otherUsers: otherUsers);
+        narrow: narrow,
+        subscriptions: [eg.subscription(channel)],
+        otherUsers: otherUsers);
 
       if (narrow is ChannelNarrow) {
-        connection.prepare(json: GetStreamTopicsResult(topics: []).toJson());
+        connection.prepare(json: GetChannelTopicsResult(topics: []).toJson());
         await enterTopic(tester, narrow: narrow, topic: topic);
       }
       await enterContent(tester, failedMessageContent);
@@ -1837,7 +2051,8 @@ void main() {
       addTearDown(MessageStoreImpl.debugReset);
       await prepareComposeBox(tester,
         narrow: narrow,
-        streams: [channel]);
+        otherUsers: [eg.otherUser],
+        subscriptions: [eg.subscription(channel)]);
       await store.addMessages([message, dmMessage]);
       await tester.pump(); // message list updates
     }
@@ -1930,6 +2145,21 @@ void main() {
       checkContentInputValue(tester, expectedContentText);
     }
 
+    /// Check whether the message in the message list says "SAVING EDIT…".
+    ///
+    /// This state is tested more thoroughly
+    /// in test/widgets/message_list_test.dart, naturally.
+    void checkEditInProgressInMsglist(WidgetTester tester,
+        {required int messageId, required bool expected}) {
+      final messageFinder = find.byWidgetPredicate((widget) =>
+        widget is MessageWithPossibleSender && widget.item.message.id == messageId);
+
+      check(find.descendant(
+        of: messageFinder,
+        matching: find.text('SAVING EDIT…'),
+      ).evaluate().length).equals(expected ? 1 : 0);
+    }
+
     void testSmoke({required Narrow narrow, required _EditInteractionStart start}) {
       testWidgets('smoke: $narrow, ${start.message()}', (tester) async {
         await prepareEditMessage(tester, narrow: narrow);
@@ -1980,6 +2210,10 @@ void main() {
           prevContent: 'foo', content: 'some new content[file.jpg](/path/file.jpg)');
         await tester.pump(Duration.zero);
         checkNotInEditingMode(tester, narrow: narrow);
+
+        // We'll say "SAVING EDIT…" in the message list until the event arrives.
+        // (No need to make the event arrive here; message-list tests do that.)
+        checkEditInProgressInMsglist(tester, messageId: messageId, expected: true);
       });
     }
     testSmoke(narrow: channelNarrow, start: _EditInteractionStart.actionSheet);
@@ -2237,6 +2471,57 @@ void main() {
     testCancel(narrow: channelNarrow, start: _EditInteractionStart.restoreFailedEdit);
     // testCancel(narrow: topicNarrow,   start: _EditInteractionStart.restoreFailedEdit);
     // testCancel(narrow: dmNarrow,      start: _EditInteractionStart.restoreFailedEdit);
+
+    testWidgets('if channel is unsubscribed, refresh on message-edit success', (tester) async {
+      // Regression test for the "first buggy behavior"
+      // in https://github.com/zulip/zulip-flutter/issues/1798 .
+
+      final channel = eg.stream();
+      final narrow = ChannelNarrow(channel.streamId);
+      final message = eg.streamMessage(stream: channel, sender: eg.selfUser);
+
+      await prepareComposeBox(tester, narrow: narrow, streams: [channel]);
+      await store.addMessages([message]);
+      check(store.subscriptions[channel.streamId]).isNull();
+      await tester.pump(); // message list updates
+
+      await startEditInteractionFromActionSheet(tester,
+        messageId: message.id, originalRawContent: 'foo');
+      await tester.pump(Duration(seconds: 1)); // fetch-raw-content request
+      checkContentInputValue(tester, 'foo');
+
+      final newMarkdownContent = ContentExample.emojiUnicode.markdown!;
+      await enterContent(tester, newMarkdownContent);
+
+      connection.prepare(json: UpdateMessageResult().toJson(), delay: Duration(seconds: 1));
+      await tester.tap(find.widgetWithText(ZulipWebUiKitButton, 'Save'));
+      await tester.pump(Duration(milliseconds: 500));
+      checkRequest(message.id, prevContent: 'foo', content: newMarkdownContent);
+
+      final updatedMessage =
+        Message.fromJson(message.toJson()..['content'] = ContentExample.emojiUnicode.html);
+      connection.prepare(json: eg.newestGetMessagesResult(
+        foundOldest: true, messages: [updatedMessage]).toJson());
+      await tester.pump(Duration(milliseconds: 500));
+      check(connection.lastRequest).isA<http.Request>()
+        ..method.equals('GET')
+        ..url.path.equals('/api/v1/messages')
+        ..url.queryParameters.deepEquals({
+          'narrow': jsonEncode(resolveApiNarrowForServer(
+            narrow.apiEncode(), connection.zulipFeatureLevel!)),
+          'anchor': '${message.id}',
+          'num_before': '100',
+          'num_after': '100',
+          'allow_empty_topic_name': 'true',
+        });
+      check(find.descendant(
+        of: find.byType(MessageWithPossibleSender),
+        matching: find.text(ContentExample.emojiUnicode.expectedText!))
+      ).findsOne();
+      // Regression coverage for the "third buggy behavior"
+      // in https://github.com/zulip/zulip-flutter/issues/1798 .
+      checkEditInProgressInMsglist(tester, messageId: message.id, expected: false);
+    });
   });
 }
 

@@ -270,8 +270,8 @@ class NotificationDisplayManager {
     // group-DM threads (pending #794) get titled with the latest sender, rather than
     // the first.
     messagingStyle.conversationTitle = switch (data.recipient) {
-      FcmMessageChannelRecipient(:var streamName?, :var topic) =>
-        '#$streamName > ${topic.displayName}',
+      FcmMessageChannelRecipient(:var channelName?, :var topic) =>
+        '#$channelName > ${topic.displayName}',
       FcmMessageChannelRecipient(:var topic) =>
         '#${zulipLocalizations.unknownChannelName} > ${topic.displayName}', // TODO get stream name from data
       FcmMessageDmRecipient(:var allRecipientIds) when allRecipientIds.length > 2 =>
@@ -293,8 +293,8 @@ class NotificationDisplayManager {
       realmUrl: data.realmUrl,
       userId: data.userId,
       narrow: switch (data.recipient) {
-        FcmMessageChannelRecipient(:var streamId, :var topic) =>
-          TopicNarrow(streamId, topic),
+        FcmMessageChannelRecipient(:var channelId, :var topic) =>
+          TopicNarrow(channelId, topic),
         FcmMessageDmRecipient(:var allRecipientIds) =>
           DmNarrow(allRecipientIds: allRecipientIds, selfUserId: data.userId),
       }).buildAndroidNotificationUrl();
@@ -313,7 +313,7 @@ class NotificationDisplayManager {
       number: messagingStyle.messages.length,
       extras: {
         // Used to decide when a `RemoveFcmMessage` event should clear this notification.
-        kExtraLastZulipMessageId: data.zulipMessageId.toString(),
+        kExtraLastMessageId: data.messageId.toString(),
       },
 
       contentIntent: PendingIntent(
@@ -369,7 +369,7 @@ class NotificationDisplayManager {
     // and should no longer appear as notifications.  We'll remove their
     // conversations' notifications, if appropriate, and then the whole
     // notification group if it's now empty.
-    assert(debugLog('notif remove zulipMessageIds: ${data.zulipMessageIds}'));
+    assert(debugLog('notif remove messageIds: ${data.messageIds}'));
 
     // There may be a lot of messages mentioned here, across a lot of
     // conversations.  But they'll all be for one account, so they'll
@@ -383,7 +383,7 @@ class NotificationDisplayManager {
     //   https://github.com/zulip/zulip-mobile/pull/4842#pullrequestreview-725817909
     var haveRemaining = false;
     final activeNotifications = await _androidHost.getActiveNotifications(
-      desiredExtras: [kExtraLastZulipMessageId]);
+      desiredExtras: [kExtraLastMessageId]);
     for (final statusBarNotification in activeNotifications) {
       // The StatusBarNotification object describes an active notification in the UI.
       // Its `.tag`, `.id`, and `.notification` are the same values as we passed to
@@ -402,11 +402,11 @@ class NotificationDisplayManager {
       // Don't act on the summary notification for the group.
       if (statusBarNotification.tag == groupKey) continue;
 
-      final lastMessageIdStr = notification.extras[kExtraLastZulipMessageId];
+      final lastMessageIdStr = notification.extras[kExtraLastMessageId];
       assert(lastMessageIdStr != null);
       if (lastMessageIdStr == null) continue; // TODO(log)
       final lastMessageId = int.parse(lastMessageIdStr, radix: 10);
-      if (data.zulipMessageIds.contains(lastMessageId)) {
+      if (data.messageIds.contains(lastMessageId)) {
         // The latest Zulip message in this conversation was read.
         // That's our cue to cancel the notification for the conversation.
         await _androidHost.cancel(
@@ -458,11 +458,11 @@ class NotificationDisplayManager {
   /// We use this to determine if a [RemoveFcmMessage] event should
   /// clear that specific notification.
   @visibleForTesting
-  static const kExtraLastZulipMessageId = 'lastZulipMessageId';
+  static const kExtraLastMessageId = 'lastZulipMessageId';
 
   static String _conversationKey(MessageFcmMessage data, String groupKey) {
     final conversation = switch (data.recipient) {
-      FcmMessageChannelRecipient(:var streamId, :var topic) => 'stream:$streamId:${topic.canonicalize()}',
+      FcmMessageChannelRecipient(:var channelId, :var topic) => 'stream:$channelId:${topic.canonicalize()}',
       FcmMessageDmRecipient(:var allRecipientIds) => 'dm:${allRecipientIds.join(',')}',
     };
     return '$groupKey|$conversation';

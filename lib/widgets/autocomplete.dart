@@ -132,7 +132,7 @@ class _AutocompleteFieldState<QueryT extends AutocompleteQuery, ResultT extends 
       //   AutocompleteView.
       optionsViewBuilder: (context, _, _) {
         return Align(
-          alignment: Alignment.bottomLeft,
+          alignment: AlignmentDirectional.bottomStart,
           child: Material(
             elevation: 4.0,
             child: ConstrainedBox(
@@ -226,6 +226,14 @@ class ComposeAutocomplete extends AutocompleteField<ComposeAutocompleteQuery, Co
         // TODO(#1805) language-appropriate space character; check active keyboard?
         //   (maybe handle centrally in `controller`)
         replacementString = '${userGroupMention(userGroup.name, silent: query.silent)} ';
+      case ChannelLinkAutocompleteResult(:final channelId):
+        final channel = store.streams[channelId];
+        if (channel == null) {
+          // Don't crash on theoretical race between async results-filtering
+          // and losing data for the channel.
+          return;
+        }
+        replacementString = '${channelLink(channel, store: store)} ';
     }
 
     controller.value = intent.textEditingValue.replaced(
@@ -243,6 +251,7 @@ class ComposeAutocomplete extends AutocompleteField<ComposeAutocompleteQuery, Co
     final child = switch (option) {
       MentionAutocompleteResult() => MentionAutocompleteItem(
         option: option, narrow: narrow),
+      ChannelLinkAutocompleteResult() => _ChannelLinkAutocompleteItem(option: option),
       EmojiAutocompleteResult() => _EmojiAutocompleteItem(option: option),
     };
     return InkWell(
@@ -357,6 +366,37 @@ class MentionAutocompleteItem extends StatelessWidget {
   }
 }
 
+class _ChannelLinkAutocompleteItem extends StatelessWidget {
+  const _ChannelLinkAutocompleteItem({required this.option});
+
+  final ChannelLinkAutocompleteResult option;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = PerAccountStoreWidget.of(context);
+    final channel = store.streams[option.channelId];
+
+    if (channel == null) return SizedBox.shrink();
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(minHeight: 44),
+      child: Padding(
+        padding: EdgeInsetsDirectional.fromSTEB(12, 4, 10, 4),
+        child: Row(spacing: 10, children: [
+          SizedBox.square(dimension: 24, child: Icon(iconDataForStream(channel),
+            size: 18, color: colorSwatchFor(context, store.subscriptions[channel.streamId]))),
+          Expanded(child: Text(channel.name,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 18, height: 20 / 18,
+              color: DesignVariables.of(context).contextMenuItemLabel,
+            ).merge(weightVariableTextStyle(context, wght: 600)))),
+          // TODO(#1945): show channel description
+        ])),
+    );
+  }
+}
+
 class _EmojiAutocompleteItem extends StatelessWidget {
   const _EmojiAutocompleteItem({required this.option});
 
@@ -370,13 +410,13 @@ class _EmojiAutocompleteItem extends StatelessWidget {
     final designVariables = DesignVariables.of(context);
     final candidate = option.candidate;
 
-    // TODO deduplicate this logic with [EmojiPickerListEntry]
     final emojiDisplay = candidate.emojiDisplay.resolve(store.userSettings);
     final Widget? glyph = switch (emojiDisplay) {
-      ImageEmojiDisplay() =>
-        ImageEmojiWidget(size: _size, emojiDisplay: emojiDisplay),
-      UnicodeEmojiDisplay() =>
-        UnicodeEmojiWidget(size: _size, emojiDisplay: emojiDisplay),
+      ImageEmojiDisplay() || UnicodeEmojiDisplay() => EmojiWidget(
+        emojiDisplay: emojiDisplay,
+        squareDimension: _size,
+        imagePlaceholderStyle: EmojiImagePlaceholderStyle.square,
+      ),
       TextEmojiDisplay() => null, // The text is already shown separately.
     };
 

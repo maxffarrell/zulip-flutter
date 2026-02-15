@@ -11,6 +11,7 @@ import 'package:zulip/api/model/model.dart';
 import 'package:zulip/api/model/narrow.dart';
 import 'package:zulip/api/route/messages.dart';
 import 'package:zulip/model/binding.dart';
+import 'package:zulip/model/internal_link.dart';
 import 'package:zulip/model/localizations.dart';
 import 'package:zulip/model/narrow.dart';
 import 'package:zulip/model/settings.dart';
@@ -55,6 +56,16 @@ void main() {
     }
 
     group('markNarrowAsRead', () {
+      (Widget, Widget) checkConfirmDialog(WidgetTester tester, int unreadCount) {
+        // TODO write tests for the nuances of what message this dialog shows
+        final zulipLocalizations = GlobalLocalizations.zulipLocalizations;
+        return checkSuggestedActionDialog(tester,
+          expectedTitle: zulipLocalizations.markAllAsReadConfirmationDialogTitleNoCount,
+          expectedMessage: zulipLocalizations.markAllAsReadConfirmationDialogMessage,
+          expectDestructiveActionButton: false,
+          expectedActionButtonText: zulipLocalizations.markAllAsReadConfirmationDialogConfirmButton);
+      }
+
       testWidgets('smoke test on modern server', (tester) async {
         final narrow = TopicNarrow.ofMessage(eg.streamMessage());
         await prepare(tester);
@@ -87,8 +98,12 @@ void main() {
           processedCount: 11, updatedCount: 3,
           firstProcessedId: null, lastProcessedId: null,
           foundOldest: true, foundNewest: true).toJson());
+        final unreadCount = store.unreads.countInCombinedFeedNarrow();
         final future = ZulipAction.markNarrowAsRead(context, narrow);
-        await tester.pump(Duration.zero);
+        await tester.pump(); // confirmation dialog appears
+        final (confirmButton, _) = checkConfirmDialog(tester, unreadCount);
+        await tester.tap(find.byWidget(confirmButton));
+        await tester.pump(Duration.zero); // wait through API request
         await future;
         check(connection.lastRequest).isA<http.Request>()
           ..method.equals('POST')
@@ -113,8 +128,12 @@ void main() {
           processedCount: 11, updatedCount: 3,
           firstProcessedId: null, lastProcessedId: null,
           foundOldest: true, foundNewest: true).toJson());
+        final unreadCount = store.unreads.countInCombinedFeedNarrow();
         final future = ZulipAction.markNarrowAsRead(context, narrow);
-        await tester.pump(Duration.zero);
+        await tester.pump(); // confirmation dialog appears
+        final (confirmButton, _) = checkConfirmDialog(tester, unreadCount);
+        await tester.tap(find.byWidget(confirmButton));
+        await tester.pump(Duration.zero); // wait through API request
         await future;
         check(store.unreads.oldUnreadsMissing).isFalse();
       });
@@ -242,6 +261,27 @@ void main() {
           expectedTitle: onFailedTitle,
           expectedMessage: 'NetworkException: Oops (ClientException: Oops)');
         check(await didPass).isFalse();
+      });
+    });
+
+    group('getFileTemporaryUrl', () {
+      testWidgets('smoke', (tester) async {
+        await prepare(tester);
+        connection.prepare(json: GetFileTemporaryUrlResult(
+          url: '/temp/s3kr1t-auth-token/paper.pdf').toJson());
+        final link = parseInternalLink(
+          store.tryResolveUrl('/user_uploads/123/ab/paper.pdf')!, store);
+
+        final future = ZulipAction.getFileTemporaryUrl(context,
+          link as UserUploadLink);
+        await tester.pump(Duration.zero);
+        check(connection.lastRequest).isA<http.Request>()
+          ..method.equals('GET')
+          ..url.path.equals('/api/v1/user_uploads/123/ab/paper.pdf')
+          ..url.query.isEmpty()
+          ..body.isEmpty();
+        check(await future).equals(
+          store.tryResolveUrl('/temp/s3kr1t-auth-token/paper.pdf')!);
       });
     });
   });

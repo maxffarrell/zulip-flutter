@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart' as http_testing;
 import 'package:zulip/model/actions.dart';
+import 'package:zulip/model/push_device.dart';
 import 'package:zulip/model/store.dart';
 import 'package:zulip/notifications/receive.dart';
 
@@ -147,6 +148,8 @@ void main() {
     }));
 
     test('notifications are removed after logout', () => awaitFakeAsync((async) async {
+      PushDeviceManager.debugAutoPause = true;
+      addTearDown(() => PushDeviceManager.debugAutoPause = false);
       await prepare();
       testBinding.firebaseMessagingInitialToken = '123';
       addTearDown(NotificationService.debugReset);
@@ -180,6 +183,7 @@ void main() {
 
     test('fallback to current token if acked is missing', () => awaitFakeAsync((async) async {
       await prepare(ackedPushToken: null);
+      addTearDown(NotificationService.debugReset);
       NotificationService.instance.token = ValueNotifier('asdf');
 
       final newConnection = separateConnection()
@@ -193,6 +197,7 @@ void main() {
 
     test('no error if acked token and current token both missing', () => awaitFakeAsync((async) async {
       await prepare(ackedPushToken: null);
+      addTearDown(NotificationService.debugReset);
       NotificationService.instance.token = ValueNotifier(null);
 
       final newConnection = separateConnection();

@@ -38,8 +38,10 @@ import 'package:zulip/widgets/topic_list.dart';
 import 'package:zulip/widgets/user.dart';
 import '../api/fake_api.dart';
 
+import '../api/model/model_checks.dart';
 import '../example_data.dart' as eg;
 import '../flutter_checks.dart';
+import '../model/autocomplete_checks.dart';
 import '../model/binding.dart';
 import '../model/content_test.dart';
 import '../model/test_store.dart';
@@ -64,6 +66,7 @@ Future<void> setupToMessageActionSheet(WidgetTester tester, {
   List<int>? mutedUserIds,
   bool? realmAllowMessageEditing,
   int? realmMessageContentEditLimitSeconds,
+  bool hasDeletePermission = true,
   bool? realmEnableReadReceipts,
   bool shouldSetServerEmojiData = true,
   bool useLegacyServerEmojiData = false,
@@ -74,14 +77,22 @@ Future<void> setupToMessageActionSheet(WidgetTester tester, {
   assert(narrow.containsMessage(message)!);
 
   selfUser ??= eg.selfUser;
+  assert(!(hasDeletePermission && selfUser.role == UserRole.guest));
   final selfAccount = eg.account(user: selfUser);
   await testBinding.globalStore.add(
     selfAccount,
     eg.initialSnapshot(
+      starredMessages: [
+        if (message.flags.contains(MessageFlag.starred)) message.id,
+      ],
       realmUsers: [selfUser],
       realmAllowMessageEditing: realmAllowMessageEditing,
       realmMessageContentEditLimitSeconds: realmMessageContentEditLimitSeconds,
       realmEnableReadReceipts: realmEnableReadReceipts,
+      realmCanDeleteAnyMessageGroup: hasDeletePermission
+        ? eg.groupSetting(members: [selfUser.userId])
+        : eg.groupSetting(members: []),
+      realmCanDeleteOwnMessageGroup: eg.groupSetting(members: []),
     ));
   store = await testBinding.globalStore.perAccount(selfAccount.id);
   await store.addUsers([
@@ -116,6 +127,9 @@ Future<void> setupToMessageActionSheet(WidgetTester tester, {
 
   // global store, per-account store, and message list get loaded
   await tester.pumpAndSettle();
+
+  check(store.selfCanDeleteMessage(message.id, atDate: testBinding.utcNow()))
+    .equals(hasDeletePermission);
 
   await beforeLongPress?.call();
 
@@ -211,12 +225,19 @@ void main() {
       channel ??= someChannel;
 
       connection.prepare(json: eg.newestGetMessagesResult(
-        foundOldest: true, messages: []).toJson());
-      if (narrow case ChannelNarrow()) {
-        // We auto-focus the topic input when there are no messages;
-        // this is for topic autocomplete.
-        connection.prepare(json: GetStreamTopicsResult(topics: []).toJson());
-      }
+        foundOldest: true,
+        messages: narrow is ChannelNarrow
+          ? () {
+              assert(channel != null && channel.streamId == narrow.streamId);
+              // Include one message so that we don't auto-focus the topic input,
+              // which would trigger a topic-list fetch for topic autocomplete.
+              // That's helpful for the test that opens the topic-list page.
+              // With the topic-list fetch deferred until that page is opened,
+              // the test can prepare the fetch response as it chooses.
+              return [eg.streamMessage(stream: channel)];
+            }()
+          : [],
+      ).toJson());
       await tester.pumpWidget(TestZulipApp(
         accountId: eg.selfAccount.id,
         child: MessageListPage(
@@ -246,19 +267,21 @@ void main() {
       await tester.pump(const Duration(milliseconds: 250));
     }
 
-    Future<void> showFromTopicListAppBar(WidgetTester tester) async {
+    Future<void> showFromTopicListAppBar(WidgetTester tester, {int? streamId}) async {
+      streamId ??= someChannel.streamId;
       final transitionDurationObserver = TransitionDurationObserver();
 
-      connection.prepare(json: GetStreamTopicsResult(topics: []).toJson());
+      connection.prepare(json: GetChannelTopicsResult(topics: []).toJson());
       await tester.pumpWidget(TestZulipApp(
         navigatorObservers: [transitionDurationObserver],
         accountId: eg.selfAccount.id,
-        child: TopicListPage(streamId: someChannel.streamId)));
+        child: TopicListPage(streamId: streamId)));
       await tester.pump();
 
+      final titleText = store.streams[streamId]?.name ?? '(unknown channel)';
       await tester.longPress(find.descendant(
         of: find.byType(ZulipAppBar),
-        matching: find.text(someChannel.name)));
+        matching: find.text(titleText)));
       await transitionDurationObserver.pumpPastTransition(tester);
     }
 
@@ -280,6 +303,62 @@ void main() {
         checkButton('Mark channel as read');
         checkButton('Copy link to channel');
       }
+
+      group('header', () {
+        final findHeader = find.descendant(
+          of: actionSheetFinder,
+          matching: find.byType(BottomSheetHeader));
+
+        Finder findInHeader(Finder finder) =>
+          find.descendant(of: findHeader, matching: finder);
+
+        testWidgets('public channel', (tester) async {
+          await prepare();
+          check(store.streams[someChannel.streamId]).isNotNull()
+            ..inviteOnly.isFalse()..isWebPublic.isFalse();
+          await showFromInbox(tester);
+          check(findInHeader(find.byIcon(ZulipIcons.hash_sign))).findsOne();
+          check(findInHeader(find.textContaining(someChannel.name))).findsOne();
+        });
+
+        testWidgets('web-public channel', (tester) async {
+          await prepare();
+          await store.handleEvent(ChannelUpdateEvent(id: 1,
+            streamId: someChannel.streamId,
+            name: someChannel.name,
+            property: null, value: null,
+            // (Ideally we'd use `property` and `value` but I'm not sure if
+            // modern servers actually do that or if they still use this
+            // separate field.)
+            isWebPublic: true));
+          check(store.streams[someChannel.streamId]).isNotNull()
+            ..inviteOnly.isFalse()..isWebPublic.isTrue();
+          await showFromInbox(tester);
+          check(findInHeader(find.byIcon(ZulipIcons.globe))).findsOne();
+          check(findInHeader(find.textContaining(someChannel.name))).findsOne();
+        });
+
+        testWidgets('private channel', (tester) async {
+          await prepare();
+          await store.handleEvent(eg.channelUpdateEvent(someChannel,
+            property: ChannelPropertyName.inviteOnly, value: true));
+          check(store.streams[someChannel.streamId]).isNotNull()
+            ..inviteOnly.isTrue()..isWebPublic.isFalse();
+          await showFromInbox(tester);
+          check(findInHeader(find.byIcon(ZulipIcons.lock))).findsOne();
+          check(findInHeader(find.textContaining(someChannel.name))).findsOne();
+        });
+
+        testWidgets('unknown channel', (tester) async {
+          await prepare();
+          await store.handleEvent(ChannelDeleteEvent(id: 1,
+            channelIds: [someChannel.streamId]));
+          check(store.streams[someChannel.streamId]).isNull();
+          await showFromTopicListAppBar(tester);
+          check(findInHeader(find.byType(Icon))).findsNothing();
+          check(findInHeader(find.textContaining('(unknown channel)'))).findsOne();
+        });
+      });
 
       testWidgets('show from inbox', (tester) async {
         await prepare();
@@ -332,12 +411,28 @@ void main() {
         await tester.pump(); // [MenuItemButton.onPressed] called in a post-frame callback: flutter/flutter@e4a39fa2e
       }
 
-      testWidgets('channel not subscribed', (tester) async {
+      testWidgets('channel not subscribed, with content access', (tester) async {
         await prepare();
         final narrow = ChannelNarrow(someChannel.streamId);
         await store.removeSubscription(narrow.streamId);
+        check(store.selfHasContentAccess(someChannel)).isTrue();
         await showFromMsglistAppBar(tester, narrow: narrow);
         checkButton('Subscribe');
+      });
+
+      testWidgets('channel not subscribed, without content access', (tester) async {
+        final privateChannel = eg.stream(inviteOnly: true);
+        await prepare();
+        await store.addStream(privateChannel);
+        await store.updateChannel(privateChannel.streamId,
+          ChannelPropertyName.canSubscribeGroup, eg.groupSetting(members: []));
+        await store.updateChannel(privateChannel.streamId,
+          ChannelPropertyName.canAddSubscribersGroup, eg.groupSetting(members: []));
+        final narrow = ChannelNarrow(privateChannel.streamId);
+        check(store.selfHasContentAccess(privateChannel)).isFalse();
+        await showFromMsglistAppBar(tester,
+          channel: privateChannel, narrow: narrow);
+        checkNoButton('Subscribe');
       });
 
       testWidgets('channel subscribed', (tester) async {
@@ -387,6 +482,8 @@ void main() {
       }
 
       testWidgets('happy path from inbox', (tester) async {
+        final zulipLocalizations = GlobalLocalizations.zulipLocalizations;
+
         await prepare();
         final message = eg.streamMessage(stream: someChannel, topic: someTopic);
         await store.addMessage(message);
@@ -396,17 +493,35 @@ void main() {
           firstProcessedId: message.id, lastProcessedId: message.id,
           foundOldest: true, foundNewest: true).toJson());
         await tester.tap(findButtonForLabel('Mark channel as read'));
+        await tester.pump();
+        await tester.pump();
+        final (confirmButton, _) = checkSuggestedActionDialog(tester,
+          expectedTitle: zulipLocalizations.markAllAsReadConfirmationDialogTitleNoCount,
+          expectedMessage: zulipLocalizations.markAllAsReadConfirmationDialogMessage,
+          expectedActionButtonText: zulipLocalizations.markAllAsReadConfirmationDialogConfirmButton);
+        await tester.tap(find.byWidget(confirmButton));
         await tester.pumpAndSettle();
+
         checkRequest(someChannel.streamId);
         checkNoDialog(tester);
       });
 
       testWidgets('request fails', (tester) async {
+        final zulipLocalizations = GlobalLocalizations.zulipLocalizations;
+
         await prepare();
         await showFromInbox(tester);
         connection.prepare(httpException: http.ClientException('Oops'));
         await tester.tap(findButtonForLabel('Mark channel as read'));
+        await tester.pump();
+        await tester.pump();
+        final (confirmButton, _) = checkSuggestedActionDialog(tester,
+          expectedTitle: zulipLocalizations.markAllAsReadConfirmationDialogTitleNoCount,
+          expectedMessage: zulipLocalizations.markAllAsReadConfirmationDialogMessage,
+          expectedActionButtonText: zulipLocalizations.markAllAsReadConfirmationDialogConfirmButton);
+        await tester.tap(find.byWidget(confirmButton));
         await tester.pumpAndSettle();
+
         checkRequest(someChannel.streamId);
         checkErrorDialog(tester,
           expectedTitle: "Mark as read failed");
@@ -425,8 +540,8 @@ void main() {
         await showFromMsglistAppBar(tester,
           narrow: ChannelNarrow(someChannel.streamId));
 
-        connection.prepare(json: GetStreamTopicsResult(topics: [
-          eg.getStreamTopicsEntry(name: 'some topic foo'),
+        connection.prepare(json: GetChannelTopicsResult(topics: [
+          eg.getChannelTopicsEntry(name: 'some topic foo'),
         ]).toJson());
         await tester.tap(findButtonForLabel('List of topics'));
         await tester.pumpAndSettle();
@@ -480,7 +595,7 @@ void main() {
         connection.prepare(json: eg.newestGetMessagesResult(
           foundOldest: true, messages: []).toJson());
         // for topic autocomplete
-        connection.prepare(json: GetStreamTopicsResult(topics: []).toJson());
+        connection.prepare(json: GetChannelTopicsResult(topics: []).toJson());
         await tapButtonAndPump(tester);
         await transitionDurationObserver.pumpPastTransition(tester);
 
@@ -512,6 +627,87 @@ void main() {
         await tester.pump(Duration.zero);
         final expectedLink = narrowLink(store, narrow).toString();
         check(await Clipboard.getData('text/plain')).isNotNull().text.equals(expectedLink);
+      });
+    });
+
+    group('PinUnpinButton', () {
+      Future<void> tapButton(WidgetTester tester, String label) async {
+        await tester.ensureVisible(findButtonForLabel(label));
+        await tester.tap(findButtonForLabel(label));
+        await tester.pump(); // [MenuItemButton.onPressed] called in a post-frame callback: flutter/flutter@e4a39fa2e
+      }
+
+      testWidgets('channel subscribed, not pinned', (tester) async {
+        await prepare();
+        final narrow = ChannelNarrow(someChannel.streamId);
+        check(store.subscriptions[narrow.streamId]).isNotNull()
+          .pinToTop.isFalse();
+        await showFromMsglistAppBar(tester, narrow: narrow);
+        checkButton('Pin to top');
+        checkNoButton('Unpin from top');
+      });
+
+      testWidgets('channel subscribed, pinned', (tester) async {
+        await prepare();
+        await store.removeSubscription(someChannel.streamId);
+        await store.addSubscription(eg.subscription(someChannel, pinToTop: true));
+        final narrow = ChannelNarrow(someChannel.streamId);
+        check(store.subscriptions[narrow.streamId]).isNotNull()
+          .pinToTop.isTrue();
+        await showFromMsglistAppBar(tester, narrow: narrow);
+        checkNoButton('Pin to top');
+        checkButton('Unpin from top');
+      });
+
+      testWidgets('channel not subscribed', (tester) async {
+        await prepare();
+        final narrow = ChannelNarrow(someChannel.streamId);
+        await store.removeSubscription(narrow.streamId);
+        await showFromMsglistAppBar(tester, narrow: narrow);
+        checkNoButton('Pin to top');
+        checkNoButton('Unpin from top');
+      });
+
+      testWidgets('smoke: pin', (tester) async {
+        await prepare();
+        final narrow = ChannelNarrow(someChannel.streamId);
+        await showFromMsglistAppBar(tester, narrow: narrow);
+
+        connection.prepare(json: {});
+        await tapButton(tester, 'Pin to top');
+        await tester.pump(Duration.zero);
+        check(connection.lastRequest).isA<http.Request>()
+          ..method.equals('POST')
+          ..url.path.equals('/api/v1/users/me/subscriptions/properties')
+          ..bodyFields.deepEquals({
+            'subscription_data': jsonEncode([{
+              'stream_id': someChannel.streamId,
+              'property': 'pin_to_top',
+              'value': true,
+            }]),
+          });
+      });
+
+      testWidgets('smoke: unpin', (tester) async {
+        await prepare();
+        await store.removeSubscription(someChannel.streamId);
+        await store.addSubscription(eg.subscription(someChannel, pinToTop: true));
+        final narrow = ChannelNarrow(someChannel.streamId);
+        await showFromMsglistAppBar(tester, narrow: narrow);
+
+        connection.prepare(json: {});
+        await tapButton(tester, 'Unpin from top');
+        await tester.pump(Duration.zero);
+        check(connection.lastRequest).isA<http.Request>()
+          ..method.equals('POST')
+          ..url.path.equals('/api/v1/users/me/subscriptions/properties')
+          ..bodyFields.deepEquals({
+            'subscription_data': jsonEncode([{
+              'stream_id': someChannel.streamId,
+              'property': 'pin_to_top',
+              'value': false,
+            }]),
+          });
       });
     });
 
@@ -548,9 +744,15 @@ void main() {
 
         connection.prepare(json: {});
         await tapButton(tester);
-        await tester.pump(Duration.zero);
+        await tester.pump();
 
-        checkNoDialog(tester);
+        final (unsubscribeButton, cancelButton) = checkSuggestedActionDialog(tester,
+          expectedTitle: 'Unsubscribe from #${channel.name}?',
+          expectDestructiveActionButton: false,
+          expectedActionButtonText: 'Unsubscribe');
+        await tester.tap(find.byWidget(unsubscribeButton));
+        await tester.pump();
+        await tester.pump(Duration.zero);
 
         check(connection.lastRequest).isA<http.Request>()
           ..method.equals('DELETE')
@@ -574,8 +776,9 @@ void main() {
         await tester.pump();
 
         final (unsubscribeButton, cancelButton) = checkSuggestedActionDialog(tester,
-          expectedTitle: 'Unsubscribe from ${channel.name}?',
-          expectedMessage: 'Once you leave this channel, you might not be able to rejoin.',
+          expectedTitle: 'Unsubscribe from #${channel.name}?',
+          expectedMessage: 'Once you leave this channel, you will not be able to rejoin.',
+          expectDestructiveActionButton: true,
           expectedActionButtonText: 'Unsubscribe');
         await tester.tap(find.byWidget(unsubscribeButton));
         await tester.pump(Duration.zero);
@@ -714,6 +917,38 @@ void main() {
         checkButton('Mark as resolved');
         checkButton('Copy link to topic');
       }
+
+      group('header', () {
+        final findHeader = find.descendant(
+          of: actionSheetFinder,
+          matching: find.byType(BottomSheetHeader));
+
+        Finder findInHeader(Finder finder) =>
+          find.descendant(of: findHeader, matching: finder);
+
+        testWidgets('with topic', (tester) async {
+          await prepare();
+          check(store.streams[someChannel.streamId]).isNotNull()
+            ..inviteOnly.isFalse()..isWebPublic.isFalse();
+          await showFromAppBar(tester);
+          check(findInHeader(find.byIcon(ZulipIcons.hash_sign))).findsOne();
+          check(findInHeader(find.textContaining(someChannel.name))).findsOne();
+          check(findInHeader(find.textContaining(someTopic))).findsOne();
+        });
+
+        testWidgets('without topic (general chat)', (tester) async {
+          await prepare(topic: '');
+          check(store.streams[someChannel.streamId]).isNotNull()
+            ..inviteOnly.isFalse()..isWebPublic.isFalse();
+          final message = eg.streamMessage(
+            stream: someChannel, topic: '', sender: eg.otherUser);
+          await showFromAppBar(tester, messages: [message], topic: eg.t(''));
+          check(findInHeader(find.byIcon(ZulipIcons.hash_sign))).findsOne();
+          check(findInHeader(find.textContaining(someChannel.name))).findsOne();
+          check(findInHeader(find.textContaining(store.realmEmptyTopicDisplayName)))
+            .findsOne();
+        });
+      });
 
       testWidgets('show from inbox; message in Unreads but not in MessageStore', (tester) async {
         await prepare(unreadMsgs: eg.unreadMsgs(count: 1,
@@ -1160,6 +1395,10 @@ void main() {
   });
 
   group('message action sheet', () {
+    final actionSheetFinder = find.byType(BottomSheet);
+    Finder findButtonForLabel(String label) =>
+      find.descendant(of: actionSheetFinder, matching: find.text(label));
+
     group('header', () {
       void checkSenderAndTimestampShown(WidgetTester tester, {required int senderId}) {
         check(find.descendant(
@@ -1523,7 +1762,7 @@ void main() {
         required TextEditingValue valueBefore,
         required Message message,
       }) {
-        check(contentController).value.equals((ComposeContentController()
+        check(contentController).value.equals((ComposeContentController(store: store)
           ..value = valueBefore
           ..insertPadded(quoteAndReplyPlaceholder(
               GlobalLocalizations.zulipLocalizations, store, message: message))
@@ -1536,7 +1775,7 @@ void main() {
         required Message message,
         required String rawContent,
       }) {
-        final builder = ComposeContentController()
+        final builder = ComposeContentController(store: store)
           ..value = valueBefore
           ..insertPadded(quoteAndReply(store, message: message, rawContent: rawContent));
         if (!valueBefore.selection.isValid) {
@@ -1548,8 +1787,8 @@ void main() {
         check(contentController).not((it) => it.validationErrors.contains(ContentValidationError.quoteAndReplyInProgress));
       }
 
-      testWidgets('in channel narrow', (tester) async {
-        final message = eg.streamMessage();
+      testWidgets('in channel narrow with different, non-vacuous topic', (tester) async {
+        final message = eg.streamMessage(topic: 'some topic');
         await setupToMessageActionSheet(tester, message: message, narrow: ChannelNarrow(message.streamId));
 
         final composeBoxController = findComposeBoxController(tester) as StreamComposeBoxController;
@@ -1557,9 +1796,9 @@ void main() {
 
         // Ensure channel-topics are loaded before testing quote & reply behavior
         connection.prepare(body:
-          jsonEncode(GetStreamTopicsResult(topics: [eg.getStreamTopicsEntry()]).toJson()));
+          jsonEncode(GetChannelTopicsResult(topics: [eg.getChannelTopicsEntry()]).toJson()));
         final topicController = composeBoxController.topic;
-        topicController.value = const TextEditingValue(text: kNoTopicTopic);
+        topicController.value = TextEditingValue(text: 'other topic');
 
         final valueBefore = contentController.value;
         prepareRawContentResponseSuccess(message: message, rawContent: 'Hello world');
@@ -1569,6 +1808,32 @@ void main() {
         check(composeBoxController.contentFocusNode.hasFocus).isTrue();
         checkSuccessState(store, contentController,
           valueBefore: valueBefore, message: message, rawContent: 'Hello world');
+        check(topicController).textNormalized.equals('other topic');
+      });
+
+      testWidgets('in channel narrow with empty topic', (tester) async {
+        // Regression test for https://github.com/zulip/zulip-flutter/issues/1469
+        final message = eg.streamMessage(topic: 'some topic');
+        await setupToMessageActionSheet(tester, message: message, narrow: ChannelNarrow(message.streamId));
+
+        final composeBoxController = findComposeBoxController(tester) as StreamComposeBoxController;
+        final contentController = composeBoxController.content;
+
+        // Ensure channel-topics are loaded before testing quote & reply behavior
+        connection.prepare(body:
+          jsonEncode(GetChannelTopicsResult(topics: [eg.getChannelTopicsEntry()]).toJson()));
+        final topicController = composeBoxController.topic;
+        topicController.value = const TextEditingValue(text: '');
+
+        final valueBefore = contentController.value;
+        prepareRawContentResponseSuccess(message: message, rawContent: 'Hello world');
+        await tapQuoteAndReplyButton(tester);
+        checkLoadingState(store, contentController, valueBefore: valueBefore, message: message);
+        await tester.pump(Duration.zero); // message is fetched; compose box updates
+        check(composeBoxController.contentFocusNode.hasFocus).isTrue();
+        checkSuccessState(store, contentController,
+          valueBefore: valueBefore, message: message, rawContent: 'Hello world');
+        check(topicController).textNormalized.equals('some topic');
       });
 
       group('in topic narrow', () {
@@ -1692,7 +1957,9 @@ void main() {
 
       testWidgets('not offered in StarredMessagesNarrow (composing to reply is not yet supported)', (tester) async {
         final message = eg.streamMessage(flags: [MessageFlag.starred]);
-        await setupToMessageActionSheet(tester, message: message, narrow: const StarredMessagesNarrow());
+        await setupToMessageActionSheet(tester,
+          message: message,
+          narrow: const StarredMessagesNarrow());
         check(findQuoteAndReplyButton(tester)).isNull();
       });
 
@@ -1768,15 +2035,13 @@ void main() {
 
           final newStream = eg.stream();
           const newTopic = 'other topic';
-          // This result isn't quite realistic for this request: it should get
-          // the updated channel/stream ID and topic, because we don't even
-          // start the request until after we get the move event.
-          // But constructing the right result is annoying at the moment, and
-          // it doesn't matter anyway: [MessageStoreImpl.reconcileMessages] will
-          // keep the version updated by the event.  If that somehow changes in
-          // some future refactor, it'll cause this test to fail.
           connection.prepare(json: eg.newestGetMessagesResult(
-            foundOldest: true, messages: [message]).toJson());
+            foundOldest: true,
+            messages: [
+              Message.fromJson(deepToJson(message) as Map<String, dynamic>
+                                 ..['stream_id'] = newStream.streamId
+                                 ..['subject'] = newTopic)
+            ]).toJson());
           await store.handleEvent(eg.updateMessageEventMoveFrom(
             newStreamId: newStream.streamId, newTopicStr: newTopic,
             propagateMode: PropagateMode.changeAll,
@@ -2166,8 +2431,6 @@ void main() {
         }
 
         testVisibility(true);
-        // TODO(server-6) limit 0 not expected on 6.0+
-        testVisibility(true, limit: 0);
         testVisibility(true, limit: 600);
         testVisibility(true, narrow: ChannelNarrow(1));
 
@@ -2209,6 +2472,95 @@ void main() {
               ..messageId.equals(message.id)
               ..originalRawContent.equals('foo');
         });
+      });
+    });
+
+    group('DeleteMessageButton', () {
+      final findButton = findButtonForLabel('Delete message');
+
+      group('visibility', () {
+        testWidgets('shown when user has permission', (tester) async {
+          final message = eg.streamMessage(flags: []);
+          await setupToMessageActionSheet(tester,
+            hasDeletePermission: true,
+            message: message, narrow: TopicNarrow.ofMessage(message));
+
+          check(findButton).findsOne();
+        });
+
+        testWidgets('not shown when user does not have permission', (tester) async {
+          final message = eg.streamMessage(flags: []);
+          await setupToMessageActionSheet(tester,
+            hasDeletePermission: false,
+            message: message, narrow: TopicNarrow.ofMessage(message));
+
+          check(findButton).findsNothing();
+        });
+      });
+
+      Future<void> tapButton(WidgetTester tester, {bool starred = false}) async {
+        await tester.ensureVisible(findButton);
+        await tester.tap(findButton);
+        await tester.pump(); // [MenuItemButton.onPressed] called in a post-frame callback: flutter/flutter@e4a39fa2e
+      }
+
+      (Widget, Widget) checkConfirmation(WidgetTester tester) =>
+        checkSuggestedActionDialog(tester,
+          expectedTitle: 'Delete message?',
+          expectedMessage: 'Deleting a message permanently removes it for everyone.',
+          expectDestructiveActionButton: true,
+          expectedActionButtonText: 'Delete');
+
+      testWidgets('smoke', (tester) async {
+        final message = eg.streamMessage(flags: []);
+        await setupToMessageActionSheet(tester,
+          message: message, narrow: TopicNarrow.ofMessage(message));
+
+        await tapButton(tester);
+        await tester.pump();
+
+        final (deleteButton, cancelButton) = checkConfirmation(tester);
+        connection.prepare(json: {});
+        await tester.tap(find.byWidget(deleteButton));
+        await tester.pump(Duration.zero);
+
+        check(connection.lastRequest).isA<http.Request>()
+          ..method.equals('DELETE')
+          ..url.path.equals('/api/v1/messages/${message.id}')
+          ..bodyFields.deepEquals({});
+      });
+
+      testWidgets('cancel confirmation dialog', (tester) async {
+        final message = eg.streamMessage(flags: []);
+        await setupToMessageActionSheet(tester,
+          message: message, narrow: TopicNarrow.ofMessage(message));
+
+        connection.takeRequests();
+
+        await tapButton(tester);
+        await tester.pump();
+
+        final (deleteButton, cancelButton) = checkConfirmation(tester);
+        await tester.tap(find.byWidget(cancelButton));
+        await tester.pumpAndSettle();
+
+        check(connection.lastRequest).isNull();
+      });
+
+      testWidgets('request fails', (tester) async {
+        final message = eg.streamMessage(flags: []);
+        await setupToMessageActionSheet(tester,
+          message: message, narrow: TopicNarrow.ofMessage(message));
+
+        await tapButton(tester);
+        await tester.pump();
+
+        final (deleteButton, cancelButton) = checkConfirmation(tester);
+        connection.prepare(apiException: eg.apiBadRequest());
+        await tester.tap(find.byWidget(deleteButton));
+        await tester.pump(Duration.zero);
+
+        checkErrorDialog(tester, expectedTitle: 'Failed to delete message');
       });
     });
 

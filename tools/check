@@ -24,6 +24,9 @@ this_dir=${BASH_SOURCE[0]%/*}
 # shellcheck source=tools/lib/git.sh
 . "${this_dir}"/lib/git.sh
 
+# shellcheck source=tools/lib/deps.sh
+. "${this_dir}"/lib/deps.sh
+
 
 ## CLI PARSING
 
@@ -63,11 +66,18 @@ What tests to run:
   --all       In the given suites, run on all files. If no list of suites
               was specified, run all suites.
 
-Extra things to do:
+Extra things to do, or skip doing:
   --fix       Fix issues found, where possible.
+  --no-pub    Tell \`flutter test\` et al. to skip \`flutter pub get\`.
 
 Modifying this script's output:
-  --verbose   Print more details about everything.
+  --output STYLE
+              Print output in the given style.  Styles are:
+                default    The default style.
+                verbose    More details about everything.
+                ci         Like verbose, but adapted to a log
+                           rather than a terminal.
+  --verbose   Equivalent to \`--output verbose\`.
 EOF
     exit 2
 }
@@ -77,7 +87,8 @@ orig_cmdline="$0 $*"
 opt_files=branch
 opt_all=
 opt_fix=
-opt_verbose=
+opt_no_pub=
+opt_output=default
 opt_suites=()
 while (( $# )); do
     case "$1" in
@@ -85,12 +96,22 @@ while (( $# )); do
         --all-files) opt_files=all; shift;;
         --all) opt_files=all; opt_all=1; shift;;
         --fix) opt_fix=1; shift;;
-        --verbose) opt_verbose=1; shift;;
+        --no-pub) opt_no_pub=1; shift;;
+        --output) shift; opt_output="$1"; shift;;
+        --verbose) opt_output=verbose; shift;;
         analyze|test|flutter_version|build_runner|l10n|drift|pigeon|icons|android|shellcheck)
             opt_suites+=("$1"); shift;;
         *) usage;;
     esac
 done
+
+opt_verbose=
+case "${opt_output}" in
+    default) ;;
+    verbose) opt_verbose=1;;
+    ci) opt_verbose=1;;
+    *) usage;;
+esac
 
 if (( ! "${#opt_suites[@]}" )); then
     if [ -n "${opt_all}" ]; then
@@ -214,12 +235,20 @@ check_no_changes() {
 
 run_analyze() {
     # no `flutter analyze --verbose` even when $opt_verbose; it's *very* verbose
-    flutter analyze
+    flutter analyze ${opt_no_pub:+--no-pub}
 }
 
 run_test() {
+    local options=(
+        ${opt_no_pub:+--no-pub}
+    )
+
+    if [ "${opt_output}" = ci ]; then
+        options+=( -r failures-only )
+    fi
+
     # no `flutter test --verbose` even when $opt_verbose; it's *very* verbose
-    flutter test
+    flutter test "${options[@]}"
 }
 
 # Check the Flutter version in pubspec.yaml is commented with a commit ID,
@@ -232,59 +261,12 @@ run_flutter_version() {
 
     local flutter_tree flutter_git
     flutter_tree=$(flutter_tree)
-    flutter_git=( git --git-dir="${flutter_tree}"/.git )
+    flutter_git=( git -C "${flutter_tree}" )
 
-    # Parse our Flutter version spec and its commit-ID comment.
-    local parsed flutter_version flutter_commit
-    # shellcheck disable=SC2207 # output has controlled whitespace
-    parsed=( $(
-        perl <pubspec.yaml -0ne '
-             print "$1 $2" if (
-                 /^  sdk: .*\n  flutter: '\''>=(\S+)'\''\s*# ([0-9a-f]{40})$/m)'
-    ) ) || return
-    if [ -z "${#parsed[@]}" ]; then
-        echo >&2 "error: Flutter version spec not recognized in pubspec.yaml"
-        return 1
-    fi
-    flutter_version="${parsed[0]}"
-    flutter_commit="${parsed[1]}"
+    local flutter_version flutter_commit
+    pubspec_flutter_version || return 1
 
-    # Check the version name matches the commit ID.
-    local commit_described predicted_version
-    commit_described=$(
-        "${flutter_git[@]}" describe --tags "${flutter_commit}"
-    ) || return
-    predicted_version=$(
-        echo "${commit_described}" \
-        | perl -lne 'print if (s
-             # This transformation is ad hoc.
-             # If we find cases where it fails, we can study
-             # how the `flutter` tool actually decides the version name.
-             <^(\d+\.\d+\.\d+-) (\d+) (\.\d+\.pre) -(\d+) -g[0-9a-f]+$>
-             <$1 . ($2 + 1) . $3 . "-" . $4>xe)'
-    ) || return
-    if [ -z "${predicted_version}" ]; then
-        cat >&2 <<EOF
-error: unexpected 'git describe' result on Flutter commit in pubspec.yaml
-Commit ${flutter_commit} was described as: ${commit_described}
-EOF
-        return 1
-    fi
-    if [ "${flutter_version}" != "${predicted_version}" ]; then
-        # Before 2025-07 (https://github.com/flutter/flutter/pull/172141),
-        # the version name ended like ".123" instead of "-123".
-        local alternate_predicted_version;
-        alternate_predicted_version="${predicted_version%-*}.${predicted_version##*-}"
-        if [ "${flutter_version}" != "${alternate_predicted_version}" ]; then
-            cat >&2 <<EOF
-error: Flutter commit in pubspec.yaml seems to differ from version bound
-Commit ${flutter_commit} was described as: ${commit_described}
-We therefore expect the Flutter version name to be: ${predicted_version}
-But the Flutter version bound in pubspec.yaml is: ${flutter_version}
-EOF
-            return 1
-        fi
-    fi
+    # TODO(#1851) Add the updated Flutter version name check
 
     # Check the commit is an acceptable commit.
     local commit_count
@@ -519,11 +501,11 @@ EOF
 }
 
 describe_git_head() {
-    local name="$1" repo_path="$2"
+    local name="$1" worktree_path="$2"
     local commit_data
     commit_data=$(
         TZ=UTC \
-        git --git-dir "${repo_path}" \
+        git -C "${worktree_path}" \
             log -1 --format="%h • %cd" \
             --abbrev=9 --date=iso8601-local
     )
@@ -535,12 +517,12 @@ print_header() {
 
     echo "Time now: $(date --utc +'%F %T %z')"
 
-    describe_git_head "zulip-flutter" .git/
+    describe_git_head "zulip-flutter" .
 
     # We avoid `flutter --version` because, weirdly, when run in a
     # GitHub Actions step it takes about 30 seconds.  (The first time;
     # it's fast subsequent times.)  That's even after `flutter precache`.
-    describe_git_head "flutter/flutter" "$(flutter_tree)"/.git
+    describe_git_head "flutter/flutter" "$(flutter_tree)"
 
     dart --version
 }

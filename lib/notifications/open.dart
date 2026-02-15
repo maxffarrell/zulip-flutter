@@ -11,8 +11,10 @@ import '../host/notifications.dart';
 import '../log.dart';
 import '../model/binding.dart';
 import '../model/narrow.dart';
+import '../model/store.dart' show Account;
 import '../widgets/app.dart';
 import '../widgets/dialog.dart';
+import '../widgets/home.dart';
 import '../widgets/message_list.dart';
 import '../widgets/page.dart';
 import '../widgets/store.dart';
@@ -48,14 +50,18 @@ class NotificationOpenService {
     try {
       switch (defaultTargetPlatform) {
         case TargetPlatform.iOS:
+          // On iOS, the notification tap that causes a launch of the app is
+          // handled a bit differently than on Android where all types of
+          // notification tap events are served via the
+          // `notificationTapEventsStream`.
           _notifDataFromLaunch = await _notifPigeonApi.getNotificationDataFromLaunch();
+
           _notifPigeonApi.notificationTapEventsStream()
             .listen(_navigateForNotification);
 
         case TargetPlatform.android:
-          // Do nothing; we do notification routing differently on Android.
-          // TODO migrate Android to use the new Pigeon API.
-          break;
+          _notifPigeonApi.notificationTapEventsStream()
+            .listen(_navigateForNotification);
 
         case TargetPlatform.fuchsia:
         case TargetPlatform.linux:
@@ -89,13 +95,13 @@ class NotificationOpenService {
     return routeForNotification(context: context, data: notifNavData);
   }
 
-  /// Provides the route to open by parsing the notification payload.
+  /// Finds the account associated with the given notification.
   ///
   /// Returns null and shows an error dialog if the associated account is not
   /// found in the global store.
   ///
   /// The context argument should be a descendant of the app's main [Navigator].
-  static AccountRoute<void>? routeForNotification({
+  static Account? _accountForNotification({
     required BuildContext context,
     required NotificationOpenPayload data,
   }) {
@@ -111,6 +117,21 @@ class NotificationOpenService {
         message: zulipLocalizations.errorNotificationOpenAccountNotFound);
       return null;
     }
+    return account;
+  }
+
+  /// Provides the route to open by parsing the notification payload.
+  ///
+  /// Returns null and shows an error dialog if the associated account is not
+  /// found in the global store.
+  ///
+  /// The context argument should be a descendant of the app's main [Navigator].
+  static AccountRoute<void>? routeForNotification({
+    required BuildContext context,
+    required NotificationOpenPayload data,
+  }) {
+    final account = _accountForNotification(context: context, data: data);
+    if (account == null) return null;
 
     return MessageListPage.buildRoute(
       accountId: account.id,
@@ -118,10 +139,56 @@ class NotificationOpenService {
       narrow: data.narrow);
   }
 
-  /// Navigates to the [MessageListPage] of the specific conversation
-  /// for the provided payload that was attached while creating the
-  /// notification.
+  /// Navigate appropriately for opening the given notification.
+  static void _navigateForNotificationPayload(
+      NavigatorState navigator, NotificationOpenPayload data) {
+    assert(navigator.mounted);
+    final context = navigator.context;
+    final navStack = ZulipApp.navigationStack!;
+
+    final account = _accountForNotification(context: context, data: data);
+    if (account == null) return; // TODO(log)
+
+    final currentPageRoute = navStack.currentPageRoute;
+    if (currentPageRoute is MaterialAccountWidgetRoute
+        && currentPageRoute.accountId == account.id
+        && currentPageRoute.page is MessageListPage
+        && MessageListPage.currentNarrow(currentPageRoute) == data.narrow
+    ) {
+      // The current page is already a MessageListPage at the desired narrow.
+      // Instead of pushing another copy of it, stay there; see #1852.
+
+      // Do dismiss any non-page routes, like dialogs and bottom sheets, though.
+      // That way we're presenting the page directly, like the user asked for
+      // by opening the notification.
+      navigator.popUntil((route) => route is PageRoute);
+
+      // TODO(#1565): Scroll to the specific message if nearby; else jump there,
+      //   or push a new page anchored there.
+      return;
+    }
+
+    if (navStack.currentAccountId != account.id) {
+      HomePage.navigate(context, accountId: account.id);
+    }
+    unawaited(navigator.push(MessageListPage.buildRoute(
+      accountId: account.id,
+      // TODO(#1565): Open at specific message, not just conversation
+      narrow: data.narrow)));
+  }
+
+  /// Navigate appropriately for opening the notification described by
+  /// the given [NotificationTapEvent].
   static Future<void> _navigateForNotification(NotificationTapEvent event) async {
+    switch (event) {
+      case IosNotificationTapEvent():
+        return _navigateForNotificationIos(event);
+      case AndroidNotificationTapEvent():
+        return _navigateForNotificationAndroid(event);
+    }
+  }
+
+  static Future<void> _navigateForNotificationIos(IosNotificationTapEvent event) async {
     assert(defaultTargetPlatform == TargetPlatform.iOS);
     assert(debugLog('opened notif: ${jsonEncode(event.payload)}'));
 
@@ -132,19 +199,14 @@ class NotificationOpenService {
 
     final notifNavData = _tryParseIosApnsPayload(context, event.payload);
     if (notifNavData == null) return; // TODO(log)
-    final route = routeForNotification(context: context, data: notifNavData);
-    if (route == null) return; // TODO(log)
-
-    // TODO(nav): Better interact with existing nav stack on notif open
-    unawaited(navigator.push(route));
+    _navigateForNotificationPayload(navigator, notifNavData);
   }
 
-  /// Navigates to the [MessageListPage] of the specific conversation
-  /// given the `zulip://notification/…` Android intent data URL,
-  /// generated with [NotificationOpenPayload.buildAndroidNotificationUrl]
-  /// while creating the notification.
-  static Future<void> navigateForAndroidNotificationUrl(Uri url) async {
+  static Future<void> _navigateForNotificationAndroid(AndroidNotificationTapEvent event) async {
     assert(defaultTargetPlatform == TargetPlatform.android);
+
+    final url = Uri.tryParse(event.dataUrl);
+    if (url == null) return; // TODO(log)
     assert(debugLog('opened notif: url: $url'));
 
     NavigatorState navigator = await ZulipApp.navigator;
@@ -153,13 +215,9 @@ class NotificationOpenService {
     if (!context.mounted) return; // TODO(linter): this is impossible as there's no actual async gap, but the use_build_context_synchronously lint doesn't see that
 
     assert(url.scheme == 'zulip' && url.host == 'notification');
-    final data = tryParseAndroidNotificationUrl(context: context, url: url);
+    final data = _tryParseAndroidNotificationUrl(context: context, url: url);
     if (data == null) return; // TODO(log)
-    final route = routeForNotification(context: context, data: data);
-    if (route == null) return; // TODO(log)
-
-    // TODO(nav): Better interact with existing nav stack on notif open
-    unawaited(navigator.push(route));
+    _navigateForNotificationPayload(navigator, data);
   }
 
   static NotificationOpenPayload? _tryParseIosApnsPayload(
@@ -177,7 +235,7 @@ class NotificationOpenService {
     }
   }
 
-  static NotificationOpenPayload? tryParseAndroidNotificationUrl({
+  static NotificationOpenPayload? _tryParseAndroidNotificationUrl({
     required BuildContext context,
     required Uri url,
   }) {

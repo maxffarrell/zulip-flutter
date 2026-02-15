@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../api/model/events.dart';
 import '../api/model/initial_snapshot.dart';
 import '../api/model/model.dart';
+import '../api/model/permission.dart';
 import 'store.dart';
 import 'user_group.dart';
 
@@ -31,22 +32,37 @@ mixin RealmStore on PerAccountStoreBase, UserGroupStore {
   Duration get serverTypingStartedWaitPeriod => Duration(milliseconds: serverTypingStartedWaitPeriodMilliseconds);
   int get serverTypingStartedWaitPeriodMilliseconds;
 
+  List<ThumbnailFormat> get serverThumbnailFormats;
+  /// A digest of [serverThumbnailFormats]:
+  /// sorted by max-width plus max-height, ascending,
+  /// and filtered to those with `animated: true`.
+  List<ThumbnailFormat> get sortedAnimatedThumbnailFormats;
+  /// A digest of [serverThumbnailFormats]:
+  /// sorted by max-width plus max-height, ascending,
+  /// and filtered to those with `animated: false`.
+  List<ThumbnailFormat> get sortedStillThumbnailFormats;
+
   //|//////////////////////////////////////////////////////////////
   // Realm settings.
 
   //|//////////////////////////////
   // Realm settings found in realm/update_dict events:
   //   https://zulip.com/api/get-events#realm-update_dict
+  //
+  // In order of appearance in the realm/update_dict event doc.
   // TODO(#668): update all these realm settings on events.
 
   bool get realmAllowMessageEditing;
+  GroupSettingValue? get realmCanDeleteAnyMessageGroup; // TODO(server-10)
+  GroupSettingValue? get realmCanDeleteOwnMessageGroup; // TODO(server-10)
+  bool get realmEnableReadReceipts;
   bool get realmMandatoryTopics;
   int get maxFileUploadSizeMib;
+  int? get realmMessageContentDeleteLimitSeconds;
   Duration? get realmMessageContentEditLimit =>
     realmMessageContentEditLimitSeconds == null ? null
       : Duration(seconds: realmMessageContentEditLimitSeconds!);
   int? get realmMessageContentEditLimitSeconds;
-  bool get realmEnableReadReceipts;
   bool get realmPresenceDisabled;
   int get realmWaitingPeriodThreshold;
 
@@ -55,6 +71,7 @@ mixin RealmStore on PerAccountStoreBase, UserGroupStore {
   // but now deprecated.
 
   RealmWildcardMentionPolicy get realmWildcardMentionPolicy; // TODO(#662): replaced by can_mention_many_users_group
+  RealmDeleteOwnMessagePolicy? get realmDeleteOwnMessagePolicy; // TODO(server-10) remove
 
   //|//////////////////////////////
   // Realm settings that lack events.
@@ -68,6 +85,9 @@ mixin RealmStore on PerAccountStoreBase, UserGroupStore {
   String get realmEmptyTopicDisplayName;
 
   Map<String, RealmDefaultExternalAccount> get realmDefaultExternalAccounts;
+
+  int get maxChannelNameLength;
+  int get maxTopicLength;
 
   //|//////////////////////////////
   // Realm settings with their own events.
@@ -122,9 +142,22 @@ mixin RealmStore on PerAccountStoreBase, UserGroupStore {
     return topic;
   }
 
+  /// Whether the self-user has passed the realm's waiting period
+  /// to be a full member.
+  ///
+  /// See:
+  ///   https://zulip.com/api/roles-and-permissions#determining-if-a-user-is-a-full-member
+  ///
+  /// To determine if the self-user is a full member,
+  /// callers must also check that the user's role is at least [UserRole.member].
+  bool selfHasPassedWaitingPeriod({required DateTime byDate});
+
   /// Whether the self-user has the given (group-based) permission.
-  bool selfHasPermissionForGroupSetting(GroupSettingValue value,
-      GroupSettingType type, String name);
+  ///
+  /// If the server doesn't know about the permission,
+  /// pass null for [value] and a reasonable default will be chosen.
+  bool selfHasPermissionForGroupSetting(GroupSettingValue? value,
+    GroupSettingType type, String name);
 }
 
 enum GroupSettingType { realm, stream, group }
@@ -144,15 +177,27 @@ mixin ProxyRealmStore on RealmStore {
   @override
   int get serverTypingStartedWaitPeriodMilliseconds => realmStore.serverTypingStartedWaitPeriodMilliseconds;
   @override
+  List<ThumbnailFormat> get serverThumbnailFormats => realmStore.serverThumbnailFormats;
+  @override
+  List<ThumbnailFormat> get sortedAnimatedThumbnailFormats => realmStore.sortedAnimatedThumbnailFormats;
+  @override
+  List<ThumbnailFormat> get sortedStillThumbnailFormats => realmStore.sortedStillThumbnailFormats;
+  @override
   bool get realmAllowMessageEditing => realmStore.realmAllowMessageEditing;
+  @override
+  GroupSettingValue? get realmCanDeleteAnyMessageGroup => realmStore.realmCanDeleteAnyMessageGroup;
+  @override
+  GroupSettingValue? get realmCanDeleteOwnMessageGroup => realmStore.realmCanDeleteOwnMessageGroup;
+  @override
+  bool get realmEnableReadReceipts => realmStore.realmEnableReadReceipts;
   @override
   bool get realmMandatoryTopics => realmStore.realmMandatoryTopics;
   @override
   int get maxFileUploadSizeMib => realmStore.maxFileUploadSizeMib;
   @override
-  int? get realmMessageContentEditLimitSeconds => realmStore.realmMessageContentEditLimitSeconds;
+  int? get realmMessageContentDeleteLimitSeconds => realmStore.realmMessageContentDeleteLimitSeconds;
   @override
-  bool get realmEnableReadReceipts => realmStore.realmEnableReadReceipts;
+  int? get realmMessageContentEditLimitSeconds => realmStore.realmMessageContentEditLimitSeconds;
   @override
   bool get realmPresenceDisabled => realmStore.realmPresenceDisabled;
   @override
@@ -160,13 +205,22 @@ mixin ProxyRealmStore on RealmStore {
   @override
   RealmWildcardMentionPolicy get realmWildcardMentionPolicy => realmStore.realmWildcardMentionPolicy;
   @override
+  RealmDeleteOwnMessagePolicy? get realmDeleteOwnMessagePolicy => realmStore.realmDeleteOwnMessagePolicy;
+  @override
   String get realmEmptyTopicDisplayName => realmStore.realmEmptyTopicDisplayName;
   @override
   Map<String, RealmDefaultExternalAccount> get realmDefaultExternalAccounts => realmStore.realmDefaultExternalAccounts;
   @override
+  int get maxChannelNameLength => realmStore.maxChannelNameLength;
+  @override
+  int get maxTopicLength => realmStore.maxTopicLength;
+  @override
   List<CustomProfileField> get customProfileFields => realmStore.customProfileFields;
   @override
-  bool selfHasPermissionForGroupSetting(GroupSettingValue value, GroupSettingType type, String name) =>
+  bool selfHasPassedWaitingPeriod({required DateTime byDate}) =>
+    realmStore.selfHasPassedWaitingPeriod(byDate: byDate);
+  @override
+  bool selfHasPermissionForGroupSetting(GroupSettingValue? value, GroupSettingType type, String name) =>
     realmStore.selfHasPermissionForGroupSetting(value, type, name);
 }
 
@@ -189,25 +243,53 @@ class RealmStoreImpl extends HasUserGroupStore with RealmStore {
     required User selfUser,
   }) :
     _selfUserRole = selfUser.role,
+    _selfUserDateJoined = selfUser.dateJoined,
     serverPresencePingIntervalSeconds = initialSnapshot.serverPresencePingIntervalSeconds,
     serverPresenceOfflineThresholdSeconds = initialSnapshot.serverPresenceOfflineThresholdSeconds,
     serverTypingStartedExpiryPeriodMilliseconds = initialSnapshot.serverTypingStartedExpiryPeriodMilliseconds,
     serverTypingStoppedWaitPeriodMilliseconds = initialSnapshot.serverTypingStoppedWaitPeriodMilliseconds,
     serverTypingStartedWaitPeriodMilliseconds = initialSnapshot.serverTypingStartedWaitPeriodMilliseconds,
+    serverThumbnailFormats = initialSnapshot.serverThumbnailFormats,
+    _sortedAnimatedThumbnailFormats = _filterAndSortThumbnailFormats(
+      initialSnapshot.serverThumbnailFormats, animated: true),
+    _sortedStillThumbnailFormats = _filterAndSortThumbnailFormats(
+      initialSnapshot.serverThumbnailFormats, animated: false),
     realmAllowMessageEditing = initialSnapshot.realmAllowMessageEditing,
+    realmCanDeleteAnyMessageGroup = initialSnapshot.realmCanDeleteAnyMessageGroup,
+    realmCanDeleteOwnMessageGroup = initialSnapshot.realmCanDeleteOwnMessageGroup,
     realmMandatoryTopics = initialSnapshot.realmMandatoryTopics,
     maxFileUploadSizeMib = initialSnapshot.maxFileUploadSizeMib,
+    realmMessageContentDeleteLimitSeconds = initialSnapshot.realmMessageContentDeleteLimitSeconds,
     realmMessageContentEditLimitSeconds = initialSnapshot.realmMessageContentEditLimitSeconds,
     realmEnableReadReceipts = initialSnapshot.realmEnableReadReceipts,
     realmPresenceDisabled = initialSnapshot.realmPresenceDisabled,
     realmWaitingPeriodThreshold = initialSnapshot.realmWaitingPeriodThreshold,
     realmWildcardMentionPolicy = initialSnapshot.realmWildcardMentionPolicy,
+    realmDeleteOwnMessagePolicy = initialSnapshot.realmDeleteOwnMessagePolicy,
     _realmEmptyTopicDisplayName = initialSnapshot.realmEmptyTopicDisplayName,
     realmDefaultExternalAccounts = initialSnapshot.realmDefaultExternalAccounts,
+    maxChannelNameLength = initialSnapshot.maxChannelNameLength,
+    maxTopicLength = initialSnapshot.maxTopicLength,
     customProfileFields = _sortCustomProfileFields(initialSnapshot.customProfileFields);
 
   @override
-  bool selfHasPermissionForGroupSetting(GroupSettingValue value,
+  bool selfHasPassedWaitingPeriod({required DateTime byDate}) {
+    // [User.dateJoined] is in UTC. For logged-in users, the format is:
+    // YYYY-MM-DDTHH:mm+00:00, which includes the timezone offset for UTC.
+    // For logged-out spectators, the format is: YYYY-MM-DD, which doesn't
+    // include the timezone offset. In the later case, [DateTime.parse] will
+    // interpret it as the client's local timezone, which could lead to
+    // incorrect results; but that's acceptable for now because the app
+    // doesn't support viewing as a spectator.
+    //
+    // See the related discussion:
+    //   https://chat.zulip.org/#narrow/channel/412-api-documentation/topic/provide.20an.20explicit.20format.20for.20.60realm_user.2Edate_joined.60/near/1980194
+    final dateJoined = DateTime.parse(_selfUserDateJoined);
+    return byDate.difference(dateJoined).inDays >= realmWaitingPeriodThreshold;
+  }
+
+  @override
+  bool selfHasPermissionForGroupSetting(GroupSettingValue? value,
       GroupSettingType type, String name) {
     // Compare web's settings_data.user_has_permission_for_group_setting.
     //
@@ -218,11 +300,58 @@ class RealmStoreImpl extends HasUserGroupStore with RealmStore {
     // That exists for deciding whether to offer the "Generate email address"
     // button, and if so then which users to offer in the dropdown;
     // it's predicting whether /api/get-stream-email-address would succeed.
-    if (_selfUserRole == UserRole.guest) {
-      final config = _groupSettingConfig(type, name);
-      if (!config.allowEveryoneGroup) return false;
+
+    final config = _groupSettingConfig(type, name);
+
+    if (_selfUserRole == UserRole.guest && !config.allowEveryoneGroup) {
+      return false;
     }
+
+    if (value == null) {
+      // The server doesn't know about the permission. *We* know about it
+      // (or presumably we wouldn't have called this method),
+      // and we know a reasonable default; use that.
+      return _hasPermissionByDefault(config);
+    }
+
     return selfInGroupSetting(value);
+  }
+
+  bool _hasPermissionByDefault(PermissionSettingsItem config) {
+    switch (config.defaultGroupName) {
+      case DefaultGroupNameUnknown():
+        // When we know about a permission, we should also know about the group
+        // we've said is the default value for it.
+        assert(false);
+        return true;
+      case PseudoSystemGroupName.streamCreatorOrNobody:
+        // TODO(#1102) implement
+        assert(() {
+          throw UnimplementedError();
+        }());
+        return true;
+      case SystemGroupName.everyoneOnInternet:
+      case SystemGroupName.everyone:
+        return true;
+      case SystemGroupName.members:
+        return _selfUserRole.isAtLeast(UserRole.member);
+      case SystemGroupName.fullMembers:
+        // There aren't any permissions where this is the default, and we
+        // probably won't add any. So for now we skip the complication of
+        // doing the waiting-period check.
+        assert(() {
+          throw UnimplementedError();
+        }());
+        return _selfUserRole.isAtLeast(UserRole.member);
+      case SystemGroupName.moderators:
+        return _selfUserRole.isAtLeast(UserRole.moderator);
+      case SystemGroupName.administrators:
+        return _selfUserRole.isAtLeast(UserRole.administrator);
+      case SystemGroupName.owners:
+        return _selfUserRole.isAtLeast(UserRole.owner);
+      case SystemGroupName.nobody:
+        return false;
+    }
   }
 
   /// The metadata for how to interpret the given group-based permission setting.
@@ -244,7 +373,19 @@ class RealmStoreImpl extends HasUserGroupStore with RealmStore {
   /// The main home of this information is [UserStore]: `store.selfUser.role`.
   /// We need it here for interpreting some permission settings;
   /// so we denormalize it here to avoid a cycle between substores.
+  ///
+  /// See also [_selfUserDateJoined].
   UserRole _selfUserRole;
+
+  /// The [User.dateJoined] of the self-user.
+  ///
+  /// The main home of this information is [UserStore]:
+  /// `store.selfUser.dateJoined`.
+  /// We need it here for interpreting some permission settings;
+  /// so we denormalize it here to avoid a cycle between substores.
+  ///
+  /// See also [_selfUserRole].
+  final String _selfUserDateJoined;
 
   @override
   final int serverPresencePingIntervalSeconds;
@@ -259,15 +400,30 @@ class RealmStoreImpl extends HasUserGroupStore with RealmStore {
   final int serverTypingStartedWaitPeriodMilliseconds;
 
   @override
+  final List<ThumbnailFormat> serverThumbnailFormats;
+  @override
+  List<ThumbnailFormat> get sortedAnimatedThumbnailFormats => _sortedAnimatedThumbnailFormats;
+  final List<ThumbnailFormat> _sortedAnimatedThumbnailFormats;
+  @override
+  List<ThumbnailFormat> get sortedStillThumbnailFormats => _sortedStillThumbnailFormats;
+  final List<ThumbnailFormat> _sortedStillThumbnailFormats;
+
+  @override
   final bool realmAllowMessageEditing;
+  @override
+  final GroupSettingValue? realmCanDeleteAnyMessageGroup;
+  @override
+  final GroupSettingValue? realmCanDeleteOwnMessageGroup;
+  @override
+  final bool realmEnableReadReceipts;
   @override
   final bool realmMandatoryTopics;
   @override
   final int maxFileUploadSizeMib;
   @override
-  final int? realmMessageContentEditLimitSeconds;
+  final int? realmMessageContentDeleteLimitSeconds;
   @override
-  final bool realmEnableReadReceipts;
+  final int? realmMessageContentEditLimitSeconds;
   @override
   final bool realmPresenceDisabled;
   @override
@@ -275,6 +431,8 @@ class RealmStoreImpl extends HasUserGroupStore with RealmStore {
 
   @override
   final RealmWildcardMentionPolicy realmWildcardMentionPolicy;
+  @override
+  final RealmDeleteOwnMessagePolicy? realmDeleteOwnMessagePolicy;
 
   @override
   String get realmEmptyTopicDisplayName {
@@ -286,6 +444,11 @@ class RealmStoreImpl extends HasUserGroupStore with RealmStore {
 
   @override
   final Map<String, RealmDefaultExternalAccount> realmDefaultExternalAccounts;
+
+  @override
+  final int maxChannelNameLength;
+  @override
+  final int maxTopicLength;
 
   @override
   List<CustomProfileField> customProfileFields;
@@ -303,6 +466,23 @@ class RealmStoreImpl extends HasUserGroupStore with RealmStore {
     final displayFields = initialCustomProfileFields.where((e) => e.displayInProfileSummary == true);
     final nonDisplayFields = initialCustomProfileFields.where((e) => e.displayInProfileSummary != true);
     return displayFields.followedBy(nonDisplayFields).toList();
+  }
+
+  static List<ThumbnailFormat> _filterAndSortThumbnailFormats(
+    List<ThumbnailFormat> initialServerThumbnailFormats, {
+    required bool animated,
+  }) {
+    return initialServerThumbnailFormats
+      .where((format) => format.animated == animated)
+      .toList()
+      ..sort(_compareThumbnailFormats);
+  }
+
+  /// A comparator to sort formats by max-width plus max-height, ascending.
+  static int _compareThumbnailFormats(ThumbnailFormat a, ThumbnailFormat b) {
+    final aValue = a.maxWidth + a.maxHeight;
+    final bValue = b.maxWidth + b.maxHeight;
+    return aValue.compareTo(bValue);
   }
 
   void handleCustomProfileFieldsEvent(CustomProfileFieldsEvent event) {

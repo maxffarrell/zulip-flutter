@@ -69,7 +69,7 @@ class CustomProfileField {
   final String name;
   final String hint;
   final String fieldData;
-  final bool? displayInProfileSummary; // TODO(server-6)
+  final bool? displayInProfileSummary;
 
   CustomProfileField({
     required this.id,
@@ -97,7 +97,7 @@ enum CustomProfileFieldType {
   link(apiValue: 5),
   user(apiValue: 6),
   externalAccount(apiValue: 7),
-  pronouns(apiValue: 8), // TODO(server-6) newly added
+  pronouns(apiValue: 8),
   unknown(apiValue: null);
 
   const CustomProfileFieldType({
@@ -184,7 +184,17 @@ class RealmEmojiItem {
   final String emojiCode;
   final String name;
   final String sourceUrl;
+
+  /// The non-animated version, if this is an animated emoji.
+  ///
+  /// As of 2025-10, this will be missing on animated emoji
+  /// that were uploaded before Zulip Server 5 when this was added;
+  /// see https://github.com/zulip/zulip/issues/36339 .
+  // TODO(server-future) Update dartdoc once all supported servers
+  //   have a fix for https://github.com/zulip/zulip/issues/36339
+  //   i.e. that have run a migration to fill this in for animated emoji.
   final String? stillUrl;
+
   final bool deactivated;
   final int? authorId;
 
@@ -257,7 +267,6 @@ class StatusEmoji {
 ///
 /// The absence of one of these means there is no change.
 class UserStatusChange {
-  // final Option<bool> away; // deprecated in server-6 (FL-148); ignore
   final Option<String?> text;
   final Option<StatusEmoji?> emoji;
 
@@ -328,6 +337,7 @@ class UserStatusChange {
 @JsonEnum(fieldRename: FieldRename.snake, alwaysCreate: true)
 enum UserSettingName {
   twentyFourHourTime,
+  starredMessageCounts,
   displayEmojiReactionUsers,
   emojiset,
   presenceEnabled,
@@ -381,13 +391,14 @@ enum Emojiset {
   google,
   googleBlob,
   twitter,
-  text;
+  text,
+  unknown;
 
   /// Get an [Emojiset] from a raw string. Throws if the string is unrecognized.
   ///
   /// Example:
   ///   'google-blob' -> Emojiset.googleBlob
-  static Emojiset fromRawString(String raw) => _byRawString[raw]!;
+  static Emojiset fromRawString(String raw) => _byRawString[raw] ?? unknown;
 
   // _$…EnumMap is thanks to `alwaysCreate: true` and `fieldRename: FieldRename.kebab`
   static final _byRawString = _$EmojisetEnumMap
@@ -627,29 +638,47 @@ class ZulipStream {
 
   final int streamId;
   String name;
+
+  // We don't expect `true` for this until we declare the `archived_channels`
+  // client capability.
+  //
+  // Servers that don't send this property will only send non-archived channels;
+  // default to false for those servers.
+  // TODO(server-10) remove default and its comment
+  // TODO(#800) remove comment about `archived_channels` client capability.
+  @JsonKey(defaultValue: false)
+  bool isArchived;
+
   String description;
   String renderedDescription;
 
   final int dateCreated;
   int? firstMessageId;
 
+  int? folderId;
+
   bool inviteOnly;
   bool isWebPublic; // present since 2.1, according to /api/changelog
   bool historyPublicToSubscribers;
   int? messageRetentionDays;
   @JsonKey(name: 'stream_post_policy')
-  ChannelPostPolicy channelPostPolicy;
+  ChannelPostPolicy? channelPostPolicy; // TODO(server-10) remove
   // final bool isAnnouncementOnly; // deprecated for `channelPostPolicy`; ignore
 
   GroupSettingValue? canAddSubscribersGroup; // TODO(server-10)
+  GroupSettingValue? canDeleteAnyMessageGroup; // TODO(server-11)
+  GroupSettingValue? canDeleteOwnMessageGroup; // TODO(server-11)
+  GroupSettingValue? canSendMessageGroup; // TODO(server-10)
   GroupSettingValue? canSubscribeGroup; // TODO(server-10)
 
+  bool? isRecentlyActive; // TODO(server-10)
   // TODO(server-8): added in FL 199, was previously only on [Subscription] objects
   int? streamWeeklyTraffic;
 
   ZulipStream({
     required this.streamId,
     required this.name,
+    required this.isArchived,
     required this.description,
     required this.renderedDescription,
     required this.dateCreated,
@@ -659,8 +688,13 @@ class ZulipStream {
     required this.historyPublicToSubscribers,
     required this.messageRetentionDays,
     required this.channelPostPolicy,
+    required this.folderId,
     required this.canAddSubscribersGroup,
+    required this.canDeleteAnyMessageGroup,
+    required this.canDeleteOwnMessageGroup,
+    required this.canSendMessageGroup,
     required this.canSubscribeGroup,
+    required this.isRecentlyActive,
     required this.streamWeeklyTraffic,
   });
 
@@ -670,6 +704,7 @@ class ZulipStream {
       streamId: subscription.streamId,
       name: subscription.name,
       description: subscription.description,
+      isArchived: subscription.isArchived,
       renderedDescription: subscription.renderedDescription,
       dateCreated: subscription.dateCreated,
       firstMessageId: subscription.firstMessageId,
@@ -678,8 +713,13 @@ class ZulipStream {
       historyPublicToSubscribers: subscription.historyPublicToSubscribers,
       messageRetentionDays: subscription.messageRetentionDays,
       channelPostPolicy: subscription.channelPostPolicy,
+      folderId: subscription.folderId,
       canAddSubscribersGroup: subscription.canAddSubscribersGroup,
+      canDeleteAnyMessageGroup: subscription.canDeleteAnyMessageGroup,
+      canDeleteOwnMessageGroup: subscription.canDeleteOwnMessageGroup,
+      canSendMessageGroup: subscription.canSendMessageGroup,
       canSubscribeGroup: subscription.canSubscribeGroup,
+      isRecentlyActive: subscription.isRecentlyActive,
       streamWeeklyTraffic: subscription.streamWeeklyTraffic,
     );
   }
@@ -700,6 +740,7 @@ class ZulipStream {
 enum ChannelPropertyName {
   // streamId is immutable
   name,
+  isArchived,
   description,
   // renderedDescription is updated via its own [ChannelUpdateEvent] field
   // dateCreated is immutable
@@ -710,8 +751,13 @@ enum ChannelPropertyName {
   messageRetentionDays,
   @JsonValue('stream_post_policy')
   channelPostPolicy,
+  folderId,
   canAddSubscribersGroup,
+  canDeleteAnyMessageGroup,
+  canDeleteOwnMessageGroup,
+  canSendMessageGroup,
   canSubscribeGroup,
+  isRecentlyActive,
   streamWeeklyTraffic;
 
   /// Get a [ChannelPropertyName] from a raw, snake-case string we recognize, else null.
@@ -767,7 +813,6 @@ class Subscription extends ZulipStream {
 
   bool pinToTop;
   bool isMuted;
-  // final bool? inHomeView; // deprecated; ignore
 
   /// As an int that dart:ui's Color constructor will take:
   ///   <https://api.flutter.dev/flutter/dart-ui/Color/Color.html>
@@ -783,6 +828,7 @@ class Subscription extends ZulipStream {
     required super.streamId,
     required super.name,
     required super.description,
+    required super.isArchived,
     required super.renderedDescription,
     required super.dateCreated,
     required super.firstMessageId,
@@ -791,8 +837,13 @@ class Subscription extends ZulipStream {
     required super.historyPublicToSubscribers,
     required super.messageRetentionDays,
     required super.channelPostPolicy,
+    required super.folderId,
     required super.canAddSubscribersGroup,
+    required super.canDeleteAnyMessageGroup,
+    required super.canDeleteOwnMessageGroup,
+    required super.canSendMessageGroup,
     required super.canSubscribeGroup,
+    required super.isRecentlyActive,
     required super.streamWeeklyTraffic,
     required this.desktopNotifications,
     required this.emailNotifications,
@@ -809,6 +860,70 @@ class Subscription extends ZulipStream {
 
   @override
   Map<String, dynamic> toJson() => _$SubscriptionToJson(this);
+}
+
+/// The name of a property in [Subscription].
+///
+/// Used in describing [updateSubscriptionSettings] and [SubscriptionUpdateEvent].
+@JsonEnum(fieldRename: FieldRename.snake, alwaysCreate: true)
+enum SubscriptionProperty {
+  /// As an int that dart:ui's Color constructor will take:
+  ///   <https://api.flutter.dev/flutter/dart-ui/Color/Color.html>
+  color,
+
+  isMuted,
+  pinToTop,
+  desktopNotifications,
+  audibleNotifications,
+  pushNotifications,
+  emailNotifications,
+  wildcardMentionsNotify,
+
+  /// A new, unrecognized property, or a deprecated one we don't use.
+  ///
+  /// Could be `in_home_view`, deprecated in FL 139 (Server 6) but still sent
+  /// as of CZO on 2025-10-03.
+  // TODO(server-future) Remove `in_home_view` comment once it stops being sent.
+  unknown;
+
+  String toJson() => _$SubscriptionPropertyEnumMap[this]!;
+
+  static SubscriptionProperty fromRawString(String raw) => _byRawString[raw] ?? unknown;
+
+  static final _byRawString = _$SubscriptionPropertyEnumMap
+    .map((key, value) => MapEntry(value, key));
+}
+
+/// As in `channel_folders` in the initial snapshot.
+///
+/// For docs, search for "channel_folders:"
+/// in <https://zulip.com/api/register-queue>.
+@JsonSerializable(fieldRename: FieldRename.snake)
+class ChannelFolder {
+  final int id;
+  String name;
+  int? order; // TODO(server-11); added in a later FL than the rest
+  final int? dateCreated;
+  final int? creatorId;
+  String description;
+  String renderedDescription;
+  bool isArchived;
+
+  ChannelFolder({
+    required this.id,
+    required this.name,
+    required this.order,
+    required this.dateCreated,
+    required this.creatorId,
+    required this.description,
+    required this.renderedDescription,
+    required this.isArchived,
+  });
+
+  factory ChannelFolder.fromJson(Map<String, dynamic> json) =>
+    _$ChannelFolderFromJson(json);
+
+  Map<String, dynamic> toJson() => _$ChannelFolderToJson(this);
 }
 
 @JsonEnum(fieldRename: FieldRename.snake, valueField: "apiValue")

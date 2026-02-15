@@ -7,7 +7,6 @@ import 'package:flutter/rendering.dart';
 import 'package:html/dom.dart' as dom;
 import 'package:intl/intl.dart' as intl;
 
-import '../api/core.dart';
 import '../api/model/model.dart';
 import '../generated/l10n/zulip_localizations.dart';
 import '../model/content.dart';
@@ -16,6 +15,7 @@ import 'actions.dart';
 import 'code_block.dart';
 import 'dialog.dart';
 import 'icons.dart';
+import 'image.dart';
 import 'inset_shadow.dart';
 import 'katex.dart';
 import 'lightbox.dart';
@@ -348,13 +348,13 @@ class BlockContentList extends StatelessWidget {
           SpoilerNode() => Spoiler(node: node),
           CodeBlockNode() => CodeBlock(node: node),
           MathBlockNode() => MathBlock(node: node),
-          ImageNodeList() => MessageImageList(node: node),
-          ImageNode() => (){
+          ImagePreviewNodeList() => MessageImagePreviewList(node: node),
+          ImagePreviewNode() => (){
             assert(false,
-              "[ImageNode] not allowed in [BlockContentList]. "
-              "It should be wrapped in [ImageNodeList]."
+              "[ImagePreviewNode] not allowed in [BlockContentList]. "
+              "It should be wrapped in [ImagePreviewNodeList]."
             );
-            return MessageImage(node: node);
+            return MessageImagePreview(node: node);
           }(),
           InlineVideoNode() => MessageInlineVideo(node: node),
           EmbedVideoNode() => MessageEmbedVideo(node: node),
@@ -468,12 +468,12 @@ class Quotation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(left: 10),
+      padding: const EdgeInsetsDirectional.only(start: 10),
       child: Container(
-        padding: const EdgeInsets.only(left: 5),
+        padding: const EdgeInsetsDirectional.only(start: 5),
         decoration: BoxDecoration(
-          border: Border(
-            left: BorderSide(
+          border: BorderDirectional(
+            start: BorderSide(
               width: 5,
               // Web has the same color in light and dark mode.
               color: const HSLColor.fromAHSL(1, 0, 0, 0.87).toColor()))),
@@ -606,7 +606,7 @@ class _SpoilerState extends State<Spoiler> with TickerProviderStateMixin {
               SizeTransition(
                 sizeFactor: _animation,
                 axis: Axis.vertical,
-                axisAlignment: -1,
+                alignment: AlignmentDirectional.topStart,
                 child: Padding(
                   padding: const EdgeInsets.all(5),
                   child: BlockContentList(nodes: widget.node.content))),
@@ -614,56 +614,29 @@ class _SpoilerState extends State<Spoiler> with TickerProviderStateMixin {
   }
 }
 
-class MessageImageList extends StatelessWidget {
-  const MessageImageList({super.key, required this.node});
+class MessageImagePreviewList extends StatelessWidget {
+  const MessageImagePreviewList({super.key, required this.node});
 
-  final ImageNodeList node;
+  final ImagePreviewNodeList node;
 
   @override
   Widget build(BuildContext context) {
     return Wrap(
-      children: node.images.map((imageNode) => MessageImage(node: imageNode)).toList());
+      children: node.imagePreviews.map((node) => MessageImagePreview(node: node)).toList());
   }
 }
 
-class MessageImage extends StatelessWidget {
-  const MessageImage({super.key, required this.node});
+class MessageImagePreview extends StatelessWidget {
+  const MessageImagePreview({super.key, required this.node});
 
-  final ImageNode node;
+  final ImagePreviewNode node;
 
   @override
   Widget build(BuildContext context) {
-    final message = InheritedMessage.of(context);
-
-    // TODO image hover animation
-    final srcUrl = node.srcUrl;
-    final thumbnailUrl = node.thumbnailUrl;
-    final store = PerAccountStoreWidget.of(context);
-    final resolvedSrcUrl = store.tryResolveUrl(srcUrl);
-    final resolvedThumbnailUrl = thumbnailUrl == null
-      ? null : store.tryResolveUrl(thumbnailUrl);
-
-    // TODO if src fails to parse, show an explicit "broken image"
-
-    return MessageMediaContainer(
-      onTap: resolvedSrcUrl == null ? null : () { // TODO(log)
-        Navigator.of(context).push(getImageLightboxRoute(
-          context: context,
-          message: message,
-          messageImageContext: context,
-          src: resolvedSrcUrl,
-          thumbnailUrl: resolvedThumbnailUrl,
-          originalWidth: node.originalWidth,
-          originalHeight: node.originalHeight));
-      },
-      child: node.loading
-        ? const CupertinoActivityIndicator()
-        : resolvedSrcUrl == null ? null : LightboxHero(
-            messageImageContext: context,
-            src: resolvedSrcUrl,
-            child: RealmContentNetworkImage(
-              resolvedThumbnailUrl ?? resolvedSrcUrl,
-              filterQuality: FilterQuality.medium)));
+    return _Image(node: node, size: MessageMediaContainer.size,
+      buildContainer: (onTap, child) {
+        return MessageMediaContainer(onTap: onTap, child: child);
+      });
   }
 }
 
@@ -736,23 +709,25 @@ class MessageMediaContainer extends StatelessWidget {
   final void Function()? onTap;
   final Widget? child;
 
+  /// The container's size, in logical pixels.
+  static const size = Size(150, 100);
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
       child: UnconstrainedBox(
-        alignment: Alignment.centerLeft,
+        alignment: AlignmentDirectional.centerStart,
         child: Padding(
           // TODO clean up this padding by imitating web less precisely;
           //   in particular, avoid adding loose whitespace at end of message.
-          padding: const EdgeInsets.only(right: 5, bottom: 5),
+          padding: const EdgeInsetsDirectional.only(end: 5, bottom: 5),
           child: ColoredBox(
             color: ContentTheme.of(context).colorMessageMediaContainerBackground,
             child: Padding(
               padding: const EdgeInsets.all(1),
-              child: SizedBox(
-                height: 100,
-                width: 150,
+              child: SizedBox.fromSize(
+                size: size,
                 child: child))))));
   }
 }
@@ -1133,6 +1108,10 @@ class _InlineContentBuilder {
         return WidgetSpan(alignment: PlaceholderAlignment.middle,
           child: MessageImageEmoji(node: node));
 
+      case InlineImageNode():
+        return WidgetSpan(alignment: PlaceholderAlignment.middle,
+          child: InlineImage(node: node, ambientTextStyle: widget.style));
+
       case MathInlineNode():
         final nodes = node.nodes;
         return nodes == null
@@ -1215,7 +1194,15 @@ class UserMention extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final store = PerAccountStoreWidget.of(context);
     final contentTheme = ContentTheme.of(context);
+    var nodes = node.nodes;
+    if (node.userId case final userId?) {
+      final user = store.getUser(userId);
+      if (user case User(:final fullName)) {
+        nodes = [TextNode(node.isSilent ? fullName : '@$fullName')];
+      }
+    }
     return Container(
       decoration: BoxDecoration(
         // TODO(#646) different for wildcard mentions
@@ -1224,7 +1211,7 @@ class UserMention extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 0.2 * kBaseFontSize),
       child: InlineContent(
         // If an @-mention is inside a link, let the @-mention override it.
-        recognizer: null,  // TODO make @-mentions tappable, for info on user
+        recognizer: null,  // TODO(#1867) make @-mentions tappable, for info on user
         // One hopes an @-mention can't contain an embedded link.
         // (The parser on creating a UserMentionNode has a TODO to check that.)
         linkRecognizers: null,
@@ -1234,7 +1221,7 @@ class UserMention extends StatelessWidget {
         //   distinguish font color between direct and wildcard mentions
         style: ambientTextStyle,
 
-        nodes: node.nodes));
+        nodes: nodes));
   }
 
 // This is a more literal translation of Zulip web's CSS.
@@ -1287,6 +1274,61 @@ class MessageImageEmoji extends StatelessWidget {
                 height: size,
               )),
       ]);
+  }
+}
+
+class InlineImage extends StatelessWidget {
+  const InlineImage({
+    super.key,
+    required this.node,
+    required this.ambientTextStyle,
+  });
+
+  final InlineImageNode node;
+  final TextStyle ambientTextStyle;
+
+  @override
+  Widget build(BuildContext context) {
+    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+
+    // Follow web's max-height behavior (10em);
+    // see image_box_em in web/src/postprocess_content.ts.
+    final maxHeight = ambientTextStyle.fontSize! * 10;
+
+    final imageSize = (node.originalWidth != null && node.originalHeight != null)
+      ? Size(node.originalWidth!, node.originalHeight!) / devicePixelRatio
+      // Layout plan when original dimensions are unknown:
+      // a [MessageMediaContainer]-sized and -colored rectangle.
+      : MessageMediaContainer.size;
+
+    // (a) Don't let tall, thin images take up too much vertical space,
+    //     which could be annoying to scroll through. And:
+    // (b) Don't let small images grow to occupy more physical pixels
+    //     than they have data for.
+    //     It looks like web has code for this in web/src/postprocess_content.ts
+    //     but it doesn't account for the device pixel ratio, in 2026-01.
+    //     So in web, small images do get blown up and blurry on modern devices:
+    //       https://chat.zulip.org/#narrow/channel/101-design/topic/Inline.20images.20blown.20up.20and.20blurry/near/2346831
+    final size = BoxConstraints(maxHeight: maxHeight)
+      .constrainSizeAndAttemptToPreserveAspectRatio(imageSize);
+
+    Widget child = _Image(node: node, size: size,
+      buildContainer: (onTap, child) {
+        if (onTap == null) return child;
+        return GestureDetector(onTap: onTap, child: child);
+      });
+
+    return Padding(
+      // Separate images vertically when they flow onto separate lines.
+      // (3px follows web; see web/styles/rendered_markdown.css.)
+      padding: const EdgeInsets.only(top: 3),
+      child: ConstrainedBox(
+        constraints: BoxConstraints.loose(size),
+        child: AspectRatio(
+          aspectRatio: size.aspectRatio,
+          child: ColoredBox(
+            color: ContentTheme.of(context).colorMessageMediaContainerBackground,
+            child: child))));
   }
 }
 
@@ -1416,6 +1458,93 @@ class MessageTableCell extends StatelessWidget {
   }
 }
 
+typedef _ImageContainerBuilder = Widget Function(VoidCallback? onTap, Widget child);
+
+/// A helper widget to deduplicate much of the logic in common
+/// between image previews and inline images.
+class _Image extends StatelessWidget {
+  const _Image({
+    required this.node,
+    required this.size,
+    required this.buildContainer,
+  });
+
+  final ImageNode node;
+  final Size size;
+  final _ImageContainerBuilder buildContainer;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = PerAccountStoreWidget.of(context);
+    final message = InheritedMessage.of(context);
+
+    final resolvedSrc = switch (node.src) {
+      ImageNodeSrcThumbnail(:final value) => value.resolve(context,
+        width: size.width,
+        height: size.height,
+        animationMode: .animateConditionally),
+      ImageNodeSrcOther(:final value) => store.tryResolveUrl(value),
+    };
+    final resolvedOriginalSrc = node.originalSrc == null ? null
+      : store.tryResolveUrl(node.originalSrc!);
+
+    Widget child = switch ((node.loading, resolvedSrc)) {
+      // resolvedSrc would be a "spinner" image URL.
+      // Use our own progress indicator instead.
+      (true, _) => const CupertinoActivityIndicator(),
+
+      // TODO(#265) use an error-case placeholder
+      // TODO(log)
+      (false, null) => SizedBox.shrink(),
+
+      (false, Uri()) => RealmContentNetworkImage(
+        // TODO(#265) use an error-case placeholder for `errorBuilder`
+        filterQuality: FilterQuality.medium,
+        semanticLabel: node.alt,
+        resolvedSrc!),
+    };
+
+    if (node.alt != null) {
+      child = Tooltip(
+        message: node.alt,
+        // (Instead of setting a semantics label here,
+        // we give the alt text to [RealmContentNetworkImage].)
+        excludeFromSemantics: true,
+        child: child);
+    }
+
+    final lightboxDisplayUrl = (node.loading || node.src is ImageNodeSrcThumbnail)
+      ? resolvedOriginalSrc
+      : resolvedSrc;
+    if (lightboxDisplayUrl == null) {
+      // TODO(log)
+      return buildContainer(null, child);
+    }
+
+    return buildContainer(
+      () {
+        Navigator.of(context).push(getImageLightboxRoute(
+          context: context,
+          message: message,
+          messageImageContext: context,
+          src: lightboxDisplayUrl,
+          thumbnailUrl: node.src is ImageNodeSrcThumbnail
+            ? node.loading
+              // (Image thumbnail is loading; don't show hard-coded spinner image
+              // even if that happens to be a thumbnail URL.)
+              ? null
+              : resolvedSrc
+            : null,
+          originalWidth: node.originalWidth,
+          originalHeight: node.originalHeight));
+      },
+      LightboxHero(
+        messageImageContext: context,
+        src: lightboxDisplayUrl,
+        child: child));
+  }
+}
+
 void _launchUrl(BuildContext context, String urlString) async {
   final store = PerAccountStoreWidget.of(context);
   final url = store.tryResolveUrl(urlString);
@@ -1436,113 +1565,14 @@ void _launchUrl(BuildContext context, String urlString) async {
           narrow: internalLink.narrow,
           initAnchorMessageId: internalLink.nearMessageId)));
 
+    case UserUploadLink():
+      final tempUrl = await ZulipAction.getFileTemporaryUrl(context, internalLink);
+      if (!context.mounted) return null;
+      if (tempUrl == null) return;
+      await PlatformActions.launchUrl(context, tempUrl);
+
     case null:
       await PlatformActions.launchUrl(context, url);
-  }
-}
-
-/// Like [Image.network], but includes [authHeader] if [src] is on-realm.
-///
-/// Use this to present image content in the ambient realm: avatars, images in
-/// messages, etc. Must have a [PerAccountStoreWidget] ancestor.
-///
-/// If [src] is an on-realm URL (it has the same origin as the ambient
-/// [Auth.realmUrl]), then an HTTP request to fetch the image will include the
-/// user's [authHeader].
-///
-/// If [src] is off-realm (e.g., a Gravatar URL), no auth header will be sent.
-///
-/// The image will be cached according to the cache behavior of [Image.network],
-/// which may mean the cache is shared between realms.
-class RealmContentNetworkImage extends StatelessWidget {
-  const RealmContentNetworkImage(
-    this.src, {
-    super.key,
-    this.scale = 1.0,
-    this.frameBuilder,
-    this.loadingBuilder,
-    this.errorBuilder,
-    this.semanticLabel,
-    this.excludeFromSemantics = false,
-    this.width,
-    this.height,
-    this.color,
-    this.opacity,
-    this.colorBlendMode,
-    this.fit,
-    this.alignment = Alignment.center,
-    this.repeat = ImageRepeat.noRepeat,
-    this.centerSlice,
-    this.matchTextDirection = false,
-    this.gaplessPlayback = false,
-    this.filterQuality = FilterQuality.low,
-    this.isAntiAlias = false,
-    // `headers` skipped
-    this.cacheWidth,
-    this.cacheHeight,
-  });
-
-  final Uri src;
-
-  final double scale;
-  final ImageFrameBuilder? frameBuilder;
-  final ImageLoadingBuilder? loadingBuilder;
-  final ImageErrorWidgetBuilder? errorBuilder;
-  final String? semanticLabel;
-  final bool excludeFromSemantics;
-  final double? width;
-  final double? height;
-  final Color? color;
-  final Animation<double>? opacity;
-  final BlendMode? colorBlendMode;
-  final BoxFit? fit;
-  final AlignmentGeometry alignment;
-  final ImageRepeat repeat;
-  final Rect? centerSlice;
-  final bool matchTextDirection;
-  final bool gaplessPlayback;
-  final FilterQuality filterQuality;
-  final bool isAntiAlias;
-  // `headers` skipped
-  final int? cacheWidth;
-  final int? cacheHeight;
-
-  @override
-  Widget build(BuildContext context) {
-    final account = PerAccountStoreWidget.of(context).account;
-
-    return Image.network(
-      src.toString(),
-
-      scale: scale,
-      frameBuilder: frameBuilder,
-      loadingBuilder: loadingBuilder,
-      errorBuilder: errorBuilder,
-      semanticLabel: semanticLabel,
-      excludeFromSemantics: excludeFromSemantics,
-      width: width,
-      height: height,
-      color: color,
-      opacity: opacity,
-      colorBlendMode: colorBlendMode,
-      fit: fit,
-      alignment: alignment,
-      repeat: repeat,
-      centerSlice: centerSlice,
-      matchTextDirection: matchTextDirection,
-      gaplessPlayback: gaplessPlayback,
-      filterQuality: filterQuality,
-      isAntiAlias: isAntiAlias,
-      headers: {
-        // Only send the auth header to the server `auth` belongs to.
-        if (src.origin == account.realmUrl.origin) ...authHeader(
-          email: account.email, apiKey: account.apiKey,
-        ),
-        ...userAgentHeader(),
-      },
-      cacheWidth: cacheWidth,
-      cacheHeight: cacheHeight,
-    );
   }
 }
 

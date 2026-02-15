@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(head:*)",
+      "Bash(find:*)",
+      "WebFetch(domain:zulip.com)",
+      "Bash(tools/icons/build-icon-font:*)",
+      "Bash(flutter gen-l10n:*)",
+      "Bash(flutter analyze:*)",
+      "Bash(flutter test:*)"
+    ],
+    "deny": [
+      "Read(android/*keystore*)",
+      "Read(android/*.jks)"
+    ]
+  }
+}

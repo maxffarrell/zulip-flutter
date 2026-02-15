@@ -31,6 +31,7 @@ import 'package:zulip/widgets/color.dart';
 import 'package:zulip/widgets/compose_box.dart';
 import 'package:zulip/widgets/content.dart';
 import 'package:zulip/widgets/icons.dart';
+import 'package:zulip/widgets/image.dart';
 import 'package:zulip/widgets/message_list.dart';
 import 'package:zulip/widgets/page.dart';
 import 'package:zulip/widgets/store.dart';
@@ -70,6 +71,7 @@ void main() {
     List<int>? mutedUserIds,
     List<Subscription>? subscriptions,
     UnreadMessagesSnapshot? unreadMsgs,
+    List<int>? starredMessages,
     int? zulipFeatureLevel,
     List<NavigatorObserver> navObservers = const [],
     bool skipAssertAccountExists = false,
@@ -83,7 +85,10 @@ void main() {
     final selfAccount = eg.selfAccount.copyWith(zulipFeatureLevel: zulipFeatureLevel);
     await testBinding.globalStore.add(selfAccount, eg.initialSnapshot(
       zulipFeatureLevel: zulipFeatureLevel,
-      streams: streams, subscriptions: subscriptions, unreadMsgs: unreadMsgs));
+      streams: streams,
+      subscriptions: subscriptions,
+      unreadMsgs: unreadMsgs,
+      starredMessages: starredMessages));
     store = await testBinding.globalStore.perAccount(selfAccount.id);
     connection = store.connection as FakeApiConnection;
 
@@ -154,7 +159,7 @@ void main() {
     testWidgets('MessageListPageState.narrow', (tester) async {
       final stream = eg.stream();
       await setupMessageListPage(tester, narrow: ChannelNarrow(stream.streamId),
-        streams: [stream],
+        subscriptions: [eg.subscription(stream)],
         messages: [eg.streamMessage(stream: stream, content: "<p>a message</p>")]);
       final state = MessageListPage.ancestorOf(tester.element(find.text("a message")));
       check(state.narrow).equals(ChannelNarrow(stream.streamId));
@@ -164,11 +169,14 @@ void main() {
       // Regression test for: https://github.com/zulip/zulip-flutter/issues/1717
       final stream = eg.stream();
       // Open the page on a topic with the literal name "general chat".
-      final topic = eg.defaultRealmEmptyTopicDisplayName;
-      final topicNarrow = eg.topicNarrow(stream.streamId, topic);
+      final topicNarrow = eg.topicNarrow(
+        stream.streamId,
+        eg.defaultRealmEmptyTopicDisplayName);
+      final message = eg.streamMessage(
+        stream: stream, topic: '', content: "<p>a message</p>");
       await setupMessageListPage(tester, narrow: topicNarrow,
-        streams: [stream],
-        messages: [eg.streamMessage(stream: stream, topic: topic, content: "<p>a message</p>")]);
+        subscriptions: [eg.subscription(stream)],
+        messages: [message]);
       final state = MessageListPage.ancestorOf(tester.element(find.text("a message")));
       // The page's narrow has been updated; the topic is "", not "general chat".
       check(state.narrow).equals(eg.topicNarrow(stream.streamId, ''));
@@ -177,7 +185,7 @@ void main() {
     testWidgets('composeBoxState finds compose box', (tester) async {
       final stream = eg.stream();
       await setupMessageListPage(tester, narrow: ChannelNarrow(stream.streamId),
-        streams: [stream],
+        subscriptions: [eg.subscription(stream)],
         messages: [eg.streamMessage(stream: stream, content: "<p>a message</p>")]);
       final state = MessageListPage.ancestorOf(tester.element(find.text("a message")));
       check(state.composeBoxState).isNotNull();
@@ -238,8 +246,8 @@ void main() {
       final channel = eg.stream();
       await setupMessageListPage(tester,
         narrow: eg.topicNarrow(channel.streamId, ''),
-        streams: [channel],
-        messageCount: 1);
+        subscriptions: [eg.subscription(channel)],
+        messages: [eg.streamMessage(stream: channel, topic: '')]);
       checkAppBarChannelTopic(
         channel.name, eg.defaultRealmEmptyTopicDisplayName);
     });
@@ -281,7 +289,8 @@ void main() {
       final channel = eg.stream();
       await setupMessageListPage(tester, narrow: eg.topicNarrow(channel.streamId, 'hi'),
         navObservers: [navObserver],
-        streams: [channel], messageCount: 1);
+        subscriptions: [eg.subscription(channel)],
+        messages: [eg.streamMessage(stream: channel, topic: 'hi')]);
 
       // Clear out initial route.
       assert(pushedRoutes.length == 1);
@@ -298,11 +307,11 @@ void main() {
       final channel = eg.stream(name: 'channel foo');
       await setupMessageListPage(tester,
         narrow: eg.topicNarrow(channel.streamId, 'topic foo'),
-        streams: [channel],
+        subscriptions: [eg.subscription(channel)],
         messages: [eg.streamMessage(stream: channel, topic: 'topic foo')]);
 
-      connection.prepare(json: GetStreamTopicsResult(topics: [
-        eg.getStreamTopicsEntry(name: 'topic foo'),
+      connection.prepare(json: GetChannelTopicsResult(topics: [
+        eg.getChannelTopicsEntry(name: 'topic foo'),
       ]).toJson());
       await tester.tap(find.byIcon(ZulipIcons.topics));
       await tester.pump(); // tap the button
@@ -319,7 +328,7 @@ void main() {
       await setupMessageListPage(tester,
         narrow: eg.topicNarrow(channel.streamId, topic),
         streams: [channel], subscriptions: [eg.subscription(channel)],
-        messageCount: 1);
+        messages: [eg.streamMessage(stream: channel, topic: topic)]);
       await store.handleEvent(eg.userTopicEvent(
         channel.streamId, topic, UserTopicVisibilityPolicy.muted));
       await tester.pump();
@@ -333,11 +342,11 @@ void main() {
       final channel = eg.stream(name: 'channel foo');
       await setupMessageListPage(tester,
         narrow: ChannelNarrow(channel.streamId),
-        streams: [channel],
+        subscriptions: [eg.subscription(channel)],
         messages: [eg.streamMessage(stream: channel, topic: 'topic foo')]);
 
-      connection.prepare(json: GetStreamTopicsResult(topics: [
-        eg.getStreamTopicsEntry(name: 'topic foo'),
+      connection.prepare(json: GetChannelTopicsResult(topics: [
+        eg.getChannelTopicsEntry(name: 'topic foo'),
       ]).toJson());
       await tester.tap(find.byIcon(ZulipIcons.topics));
       await tester.pump(); // tap the button
@@ -355,10 +364,10 @@ void main() {
       final mutedUsers = [1, 3];
 
       await setupMessageListPage(tester,
-        narrow: DmNarrow.withOtherUsers([1, 2, 3], selfUserId: 10),
+        narrow: DmNarrow.withOtherUsers([1, 2, 3], selfUserId: eg.selfUser.userId),
         users: [user1, user2, user3],
         mutedUserIds: mutedUsers,
-        messageCount: 1,
+        messages: [eg.dmMessage(from: user1, to: [user2, user3, eg.selfUser])],
       );
 
       check(find.text('DMs with Muted user, User 2, Muted user')).findsOne();
@@ -371,9 +380,219 @@ void main() {
     Finder findTextInPlaceholder(String text) =>
       find.descendant(of: findPlaceholder, matching: find.textContaining(text));
 
+    Future<void> checkLink(WidgetTester tester, {
+        required String linkText, required Uri expectedUrl}) async {
+      await tester.tapOnText(find.textRange.ofSubstring(linkText));
+      final (url: url, mode: _) = testBinding.takeLaunchUrlCalls().single;
+      check(url).equals(expectedUrl);
+    }
+
     testWidgets('Combined feed', (tester) async {
       await setupMessageListPage(tester, narrow: CombinedFeedNarrow(), messages: []);
-      check(findTextInPlaceholder('There are no messages here.')).findsOne();
+      check(findPlaceholder).findsOne();
+      check(findTextInPlaceholder('combined feed')).findsOne();
+    });
+
+    testWidgets('Subscribed channel', (tester) async {
+      final channel = eg.stream();
+      await setupMessageListPage(tester,
+        narrow: ChannelNarrow(channel.streamId), messages: [], streams: [channel],
+        skipPumpAndSettle: true);
+
+      // The topic input is autofocused, triggering topic autocomplete.
+      connection.prepare(json: GetChannelTopicsResult(topics: []).toJson());
+      await tester.pumpAndSettle();
+
+      check(findPlaceholder).findsOne();
+      check(findTextInPlaceholder('no messages')).findsOne();
+    });
+
+    testWidgets('Channel without content access', (tester) async {
+      final channel = eg.stream(inviteOnly: true);
+      await setupMessageListPage(tester,
+        narrow: ChannelNarrow(channel.streamId), messages: [], streams: [channel],
+        skipPumpAndSettle: true);
+
+      // The topic input is autofocused, triggering topic autocomplete.
+      connection.prepare(json: GetChannelTopicsResult(topics: []).toJson());
+      await tester.pumpAndSettle();
+
+      check(store.selfHasContentAccess(channel)).isFalse();
+      check(findPlaceholder).findsOne();
+      check(findTextInPlaceholder('content access')).findsOne();
+      await checkLink(tester,
+        linkText: 'content access',
+        expectedUrl: store.tryResolveUrl('/help/channel-permissions')!);
+    });
+
+    testWidgets('Unknown channel', (tester) async {
+      final channel = eg.stream();
+      await setupMessageListPage(tester,
+        narrow: ChannelNarrow(channel.streamId), messages: [], streams: []);
+      check(findPlaceholder).findsOne();
+      check(findTextInPlaceholder('This channel doesn’t exist, or you are not allowed to view it.')).findsOne();
+    });
+
+    testWidgets('Topic in unknown channel', (tester) async {
+      final channel = eg.stream();
+      await setupMessageListPage(tester,
+        narrow: TopicNarrow(channel.streamId, eg.t('topic')), messages: [], streams: []);
+      check(findPlaceholder).findsOne();
+      check(findTextInPlaceholder('This channel doesn’t exist, or you are not allowed to view it.')).findsOne();
+    });
+
+    testWidgets('Topic in subscribed channel', (tester) async {
+      final channel = eg.stream();
+      await setupMessageListPage(tester,
+        narrow: TopicNarrow(channel.streamId, eg.t('topic')), messages: [], streams: [channel]);
+      check(findPlaceholder).findsOne();
+      check(findTextInPlaceholder('no messages')).findsOne();
+    });
+
+    testWidgets('Topic in channel without content access', (tester) async {
+      final channel = eg.stream(inviteOnly: true);
+      await setupMessageListPage(tester,
+        narrow: TopicNarrow(channel.streamId, eg.t('topic')), messages: [], streams: [channel],
+        skipPumpAndSettle: true);
+
+      // The topic input is autofocused, triggering topic autocomplete.
+      connection.prepare(json: GetChannelTopicsResult(topics: []).toJson());
+      await tester.pumpAndSettle();
+
+      check(store.selfHasContentAccess(channel)).isFalse();
+      check(findPlaceholder).findsOne();
+      check(findTextInPlaceholder('content access')).findsOne();
+      await checkLink(tester,
+        linkText: 'content access',
+        expectedUrl: store.tryResolveUrl('/help/channel-permissions')!);
+    });
+
+    testWidgets('Self-DM', (tester) async {
+      final selfUserId = eg.selfUser.userId;
+      await setupMessageListPage(tester,
+        narrow: DmNarrow.withUser(selfUserId, selfUserId: selfUserId), messages: [], users: [eg.selfUser]);
+      check(findPlaceholder).findsOne();
+      check(findTextInPlaceholder('yourself')).findsOne();
+      check(findTextInPlaceholder('Use this space')).findsOne();
+    });
+
+    testWidgets('1:1 DM', (tester) async {
+      final selfUserId = eg.selfUser.userId;
+      final user = eg.user();
+      await setupMessageListPage(tester,
+        narrow: DmNarrow.withUser(user.userId, selfUserId: selfUserId), messages: [], users: [eg.selfUser, user]);
+      check(findPlaceholder).findsOne();
+      check(findTextInPlaceholder(user.fullName)).findsOne();
+      check(findTextInPlaceholder('yet.')).findsOne();
+      check(findTextInPlaceholder('Why not start the conversation?')).findsOne();
+    });
+
+    testWidgets('1:1 DM, muted user', (tester) async {
+      final selfUserId = eg.selfUser.userId;
+      final user = eg.user();
+      await setupMessageListPage(tester,
+        narrow: DmNarrow.withUser(user.userId, selfUserId: selfUserId), messages: [], users: [eg.selfUser, user]);
+      await store.handleEvent(MutedUsersEvent(id: 1, mutedUsers: [MutedUserItem(id: user.userId)]));
+      await tester.pump();
+      check(store.isUserMuted(user.userId)).isTrue();
+      check(findPlaceholder).findsOne();
+
+      // Probably want to show their name, not "Muted user";
+      // this UI context is very much focused on the one user.
+      check(findTextInPlaceholder(user.fullName)).findsOne();
+      check(findTextInPlaceholder('Muted user')).findsNothing();
+
+      // No need to encourage starting a conversation though.
+      check(findTextInPlaceholder('Why not start the conversation?')).findsNothing();
+    });
+
+    testWidgets('1:1 DM, unknown user', (tester) async {
+      final selfUserId = eg.selfUser.userId;
+      await setupMessageListPage(tester,
+        narrow: DmNarrow.withUser(eg.user().userId, selfUserId: selfUserId), messages: [], users: [eg.selfUser]);
+      check(findPlaceholder).findsOne();
+      check(findTextInPlaceholder('this user')).findsOne();
+      check(findTextInPlaceholder('(unknown user)')).findsNothing();
+
+      // No need to encourage starting a conversation...right?
+      check(findTextInPlaceholder('yet.')).findsNothing();
+      check(findTextInPlaceholder('Why not start the conversation?')).findsNothing();
+    });
+
+    testWidgets('1:1 DM, deactivated user', (tester) async {
+      final selfUserId = eg.selfUser.userId;
+      final user = eg.user(isActive: false);
+      await setupMessageListPage(tester,
+        narrow: DmNarrow.withUser(user.userId, selfUserId: selfUserId), messages: [], users: [eg.selfUser, user]);
+      check(findPlaceholder).findsOne();
+      check(findTextInPlaceholder(user.fullName)).findsOne();
+
+      // Sending messages isn't allowed; don't suggest that
+      check(findTextInPlaceholder('yet.')).findsNothing();
+      check(findTextInPlaceholder('Why not start the conversation?')).findsNothing();
+    });
+
+    testWidgets('1:1 DM, muted and deactivated user', (tester) async {
+      final selfUserId = eg.selfUser.userId;
+      final user = eg.user(isActive: false);
+      await setupMessageListPage(tester,
+        narrow: DmNarrow.withUser(user.userId, selfUserId: selfUserId), messages: [], users: [eg.selfUser, user]);
+      await store.handleEvent(MutedUsersEvent(id: 1, mutedUsers: [MutedUserItem(id: user.userId)]));
+      await tester.pump();
+      check(store.isUserMuted(user.userId)).isTrue();
+      check(findPlaceholder).findsOne();
+
+      // Probably want to show their name, not "Muted user";
+      // this UI context is very much focused on the one user.
+      check(findTextInPlaceholder(user.fullName)).findsOne();
+      check(findTextInPlaceholder('Muted user')).findsNothing();
+
+      // Sending messages isn't allowed; don't suggest that
+      check(findTextInPlaceholder('yet.')).findsNothing();
+      check(findTextInPlaceholder('Why not start the conversation?')).findsNothing();
+    });
+
+    testWidgets('Group DM', (tester) async {
+      final selfUserId = eg.selfUser.userId;
+      final user1 = eg.user();
+      final user2 = eg.user();
+      await setupMessageListPage(tester,
+        narrow: DmNarrow.withUsers([user1.userId, user2.userId], selfUserId: selfUserId),
+        messages: [], users: [eg.selfUser, user1, user2]);
+      check(findPlaceholder).findsOne();
+      check(findTextInPlaceholder('these users')).findsOne();
+      check(findTextInPlaceholder('yet.')).findsOne();
+      check(findTextInPlaceholder('Why not start the conversation?')).findsOne();
+    });
+
+    testWidgets('Group DM with a deactivated user', (tester) async {
+      final selfUserId = eg.selfUser.userId;
+      final user1 = eg.user(isActive: false);
+      final user2 = eg.user();
+      await setupMessageListPage(tester,
+        narrow: DmNarrow.withUsers([user1.userId, user2.userId], selfUserId: selfUserId),
+        messages: [], users: [eg.selfUser, user1, user2]);
+      check(findPlaceholder).findsOne();
+      check(findTextInPlaceholder('these users')).findsOne();
+
+      // Sending messages isn't allowed; don't suggest that
+      check(findTextInPlaceholder('yet.')).findsNothing();
+      check(findTextInPlaceholder('Why not start the conversation?')).findsNothing();
+    });
+
+    testWidgets('Mentions', (tester) async {
+      await setupMessageListPage(tester, narrow: MentionsNarrow(), messages: []);
+      check(findPlaceholder).findsOne();
+      check(findTextInPlaceholder('mentioned')).findsOne();
+    });
+
+    testWidgets('Starred', (tester) async {
+      await setupMessageListPage(tester, narrow: StarredMessagesNarrow(), messages: []);
+      check(findPlaceholder).findsOne();
+      check(findTextInPlaceholder('starred')).findsOne();
+      check(findTextInPlaceholder('tap “Star message.”')).findsOne();
+      await checkLink(tester, linkText: 'Starring',
+        expectedUrl: store.tryResolveUrl('/help/star-a-message')!);
     });
 
     testWidgets('Search, empty keyword', (tester) async {
@@ -390,7 +609,7 @@ void main() {
       final channel = eg.stream();
       await setupMessageListPage(tester,
         narrow: TopicNarrow(channel.streamId, eg.t('topic')),
-        streams: [channel],
+        subscriptions: [eg.subscription(channel)],
         messages: []);
       check(findPlaceholder).findsOne();
 
@@ -405,7 +624,31 @@ void main() {
   });
 
   group('presents message content appropriately', () {
-    testWidgets('content not asked to consume insets (including bottom), even without compose box', (tester) async {
+    testWidgets('content not asked to consume insets (including bottom), even without compose box, in top sliver', (tester) async {
+      // Regression test for: https://github.com/zulip/zulip-flutter/issues/1523
+      const fakePadding = FakeViewPadding(left: 10, top: 10, right: 10, bottom: 10);
+      tester.view.viewInsets = fakePadding;
+      tester.view.padding = fakePadding;
+
+      await setupMessageListPage(tester, narrow: const CombinedFeedNarrow(),
+        messages: [
+          eg.streamMessage(content: ContentExample.codeBlockPlain.html),
+          eg.streamMessage(),
+        ]);
+
+      // Verify this message list lacks a compose box.
+      // (The original bug wouldn't reproduce with a compose box present.)
+      final state = MessageListPage.ancestorOf(tester.element(find.text("verb\natim")));
+      check(state.composeBoxState).isNull();
+      // Also verify that the first message is in the top sliver.
+      check(state.model!.middleMessage).equals(1);
+
+      final element = tester.element(find.byType(CodeBlock));
+      final padding = MediaQuery.of(element).padding;
+      check(padding).equals(EdgeInsets.zero);
+    });
+
+    testWidgets('content not asked to consume insets (including bottom), even without compose box, in bottom sliver', (tester) async {
       // Regression test for: https://github.com/zulip/zulip-flutter/issues/736
       const fakePadding = FakeViewPadding(left: 10, top: 10, right: 10, bottom: 10);
       tester.view.viewInsets = fakePadding;
@@ -418,6 +661,8 @@ void main() {
       // (The original bug wouldn't reproduce with a compose box present.)
       final state = MessageListPage.ancestorOf(tester.element(find.text("verb\natim")));
       check(state.composeBoxState).isNull();
+      // Also verify that the message is in the bottom sliver.
+      check(state.model!.middleMessage).equals(0);
 
       final element = tester.element(find.byType(CodeBlock));
       final padding = MediaQuery.of(element).padding;
@@ -462,9 +707,11 @@ void main() {
 
     group('topic permalink', () {
       final someStream = eg.stream();
+      final someSubscription = eg.subscription(someStream);
       const someTopic = 'some topic';
 
       final otherStream = eg.stream();
+      final otherSubscription = eg.subscription(otherStream);
       const otherTopic = 'other topic';
 
       testWidgets('with message move', (tester) async {
@@ -473,7 +720,7 @@ void main() {
           narrow: narrow,
           // server sends the /with/<id> message in its current, different location
           messages: [eg.streamMessage(id: 1, stream: otherStream, topic: otherTopic)],
-          streams: [someStream, otherStream],
+          subscriptions: [someSubscription, otherSubscription],
           skipPumpAndSettle: true);
         await tester.pump(); // global store loaded
         await tester.pump(); // per-account store loaded
@@ -507,7 +754,7 @@ void main() {
           narrow: narrow,
           // server sends the /with/<id> message in its current, different location
           messages: [eg.streamMessage(id: 1, stream: someStream, topic: someTopic)],
-          streams: [someStream],
+          subscriptions: [someSubscription],
           skipPumpAndSettle: true);
         await tester.pump(); // global store loaded
         await tester.pump(); // per-account store loaded
@@ -943,6 +1190,133 @@ void main() {
       return finder.evaluate().isNotEmpty;
     }
 
+    (Widget, Widget) checkConfirmDialog(WidgetTester tester, int unreadCount) {
+      final zulipLocalizations = GlobalLocalizations.zulipLocalizations;
+      return checkSuggestedActionDialog(tester,
+        expectedTitle: zulipLocalizations.markAllAsReadConfirmationDialogTitleNoCount,
+        expectedMessage: zulipLocalizations.markAllAsReadConfirmationDialogMessage,
+        expectDestructiveActionButton: false,
+        expectedActionButtonText: zulipLocalizations.markAllAsReadConfirmationDialogConfirmButton);
+    }
+
+    group('confirmation dialog', () {
+      Future<void> showsConfirmDialog(WidgetTester tester, {
+        required Narrow narrow,
+        required List<Message> messages,
+        required UnreadMessagesSnapshot unreadMsgs,
+      }) async {
+        await setupMessageListPage(tester, narrow: narrow,
+          messages: messages, unreadMsgs: unreadMsgs);
+        check(isMarkAsReadButtonVisible(tester)).isTrue();
+
+        await tester.tap(find.byType(MarkAsReadWidget));
+        await tester.pump();
+
+        final unreadCount = store.unreads.countInNarrow(narrow);
+        checkConfirmDialog(tester, unreadCount);
+      }
+
+      Future<void> doesNotShowConfirmDialog(WidgetTester tester, {
+        required Narrow narrow,
+        required List<Message> messages,
+        required UnreadMessagesSnapshot unreadMsgs,
+        required UpdateMessageFlagsForNarrowResult updateResult,
+      }) async {
+        await setupMessageListPage(tester,
+          narrow: narrow, messages: messages, unreadMsgs: unreadMsgs);
+        check(isMarkAsReadButtonVisible(tester)).isTrue();
+
+        connection.prepare(json: updateResult.toJson());
+        await tester.tap(find.byType(MarkAsReadWidget));
+        await tester.pump();
+
+        checkNoDialog(tester);
+        await tester.pump(Duration.zero);
+        final apiNarrow = narrow.apiEncode()..add(ApiNarrowIs(IsOperand.unread));
+        check(connection.lastRequest).isA<http.Request>()
+          ..method.equals('POST')
+          ..url.path.equals('/api/v1/messages/flags/narrow')
+          ..bodyFields.deepEquals({
+              'anchor': 'oldest',
+              'include_anchor': 'false',
+              'num_before': '0',
+              'num_after': '1000',
+              'narrow': jsonEncode(resolveApiNarrowForServer(apiNarrow, connection.zulipFeatureLevel!)),
+              'op': 'add',
+              'flag': 'read',
+            });
+      }
+
+      testWidgets('CombinedFeedNarrow: show dialog', (tester) async {
+        final message = eg.streamMessage(flags: []);
+        await showsConfirmDialog(tester,
+          narrow: CombinedFeedNarrow(),
+          messages: [message],
+          unreadMsgs: eg.unreadMsgs(channels: [
+            UnreadChannelSnapshot(
+              streamId: message.streamId,
+              topic: message.topic,
+              unreadMessageIds: [message.id]),
+          ]));
+      });
+
+      testWidgets('MentionsNarrow: show dialog', (tester) async {
+        final message = eg.streamMessage(flags: [MessageFlag.mentioned]);
+        await showsConfirmDialog(tester,
+          narrow: MentionsNarrow(),
+          messages: [message],
+          unreadMsgs: eg.unreadMsgs(
+            mentions: [message.id],
+            channels: [
+              UnreadChannelSnapshot(
+                streamId: message.streamId,
+                topic: message.topic,
+                unreadMessageIds: [message.id]),
+            ]));
+      });
+
+      testWidgets('ChannelNarrow: show dialog', (tester) async {
+        final message = eg.streamMessage(flags: []);
+        await showsConfirmDialog(tester,
+          narrow: ChannelNarrow(message.streamId),
+          messages: [message],
+          unreadMsgs: eg.unreadMsgs(channels: [
+            UnreadChannelSnapshot(
+              streamId: message.streamId,
+              topic: message.topic,
+              unreadMessageIds: [message.id]),
+          ]));
+      });
+
+      testWidgets('DmNarrow: do not show dialog', (tester) async {
+        final message = eg.dmMessage(flags: [], from: eg.selfUser, to: [eg.otherUser]);
+        await doesNotShowConfirmDialog(tester,
+          narrow: DmNarrow.ofMessage(message, selfUserId: eg.selfUser.userId),
+          messages: [message],
+          unreadMsgs: eg.unreadMsgs(dms: [
+            UnreadDmSnapshot(otherUserId: eg.otherUser.userId,
+              unreadMessageIds: [message.id])]),
+          updateResult: UpdateMessageFlagsForNarrowResult(
+            processedCount: 1, updatedCount: 1,
+            firstProcessedId: message.id, lastProcessedId: message.id,
+            foundOldest: true, foundNewest: true));
+      });
+
+      testWidgets('TopicNarrow: do not show dialog', (tester) async {
+        final message = eg.streamMessage(flags: []);
+        await doesNotShowConfirmDialog(tester,
+          narrow: TopicNarrow.ofMessage(message),
+          messages: [message],
+          unreadMsgs: eg.unreadMsgs(channels: [
+            UnreadChannelSnapshot(topic: message.topic,
+              streamId: message.streamId, unreadMessageIds: [message.id])]),
+          updateResult: UpdateMessageFlagsForNarrowResult(
+            processedCount: 1, updatedCount: 1,
+            firstProcessedId: message.id, lastProcessedId: message.id,
+            foundOldest: true, foundNewest: true));
+      });
+    });
+
     testWidgets('from read to unread', (tester) async {
       final message = eg.streamMessage(flags: [MessageFlag.read]);
       await setupMessageListPage(tester, messages: [message]);
@@ -968,6 +1342,48 @@ void main() {
         messages: [message.id],
         all: false,
       ));
+      await tester.pumpAndSettle();
+      check(isMarkAsReadButtonVisible(tester)).isFalse();
+    });
+
+    testWidgets('listens to Unreads model, not just PerAccountStore and MessageListView', (tester) async {
+      // Regression test for an edge case where the button wouldn't disappear
+      // when the narrow's unreads were cleared, because the button would only
+      // respond to notifications from PerAccountStore and MessageListView,
+      // not Unreads.
+      //
+      // For this test, there's one unread message in the narrow,
+      // and it's old enough that it hasn't been fetched yet.
+      // We simulate an event that removes the message from the narrow,
+      // thus causing Unreads but not MessageListView or PerAccountStore
+      // to notify listeners.
+      // And we check that the button responds by disappearing.
+
+      final message = eg.streamMessage(id: 100, flags: [MessageFlag.mentioned]);
+      final unreadMsgs = eg.unreadMsgs(
+        channels: [
+          UnreadChannelSnapshot(
+            topic: message.topic,
+            streamId: message.streamId,
+            unreadMessageIds: [message.id],
+          ),
+        ],
+        mentions: [message.id],
+      );
+      await setupMessageListPage(tester,
+        narrow: MentionsNarrow(),
+        unreadMsgs: unreadMsgs,
+        // omit `message`; if present, MessageListView would notify listeners
+        messages: List.generate(300, (i) =>
+          eg.streamMessage(id: 950 + i, sender: eg.selfUser,
+            flags: [MessageFlag.read, MessageFlag.mentioned])),
+        foundOldest: false);
+      check(isMarkAsReadButtonVisible(tester)).isTrue();
+
+      // The message no longer has an @-mention.
+      // It was the only unread message with an @-mention,
+      // so the button should disappear.
+      await store.handleEvent(eg.updateMessageEditEvent(message, flags: []));
       await tester.pumpAndSettle();
       check(isMarkAsReadButtonVisible(tester)).isFalse();
     });
@@ -1132,6 +1548,10 @@ void main() {
           firstProcessedId: null, lastProcessedId: null,
           foundOldest: true, foundNewest: true).toJson());
         await tester.tap(find.byType(MarkAsReadWidget));
+        await tester.pump();
+        final unreadCount = store.unreads.countInCombinedFeedNarrow();
+        final (confirmButton, _) = checkConfirmDialog(tester, unreadCount);
+        await tester.tap(find.byWidget(confirmButton));
         await tester.pumpAndSettle();
         check(store.unreads.oldUnreadsMissing).isFalse();
       });
@@ -1145,6 +1565,10 @@ void main() {
 
         connection.prepare(httpException: http.ClientException('Oops'));
         await tester.tap(find.byType(MarkAsReadWidget));
+        await tester.pump();
+        final unreadCount = store.unreads.countInCombinedFeedNarrow();
+        final (confirmButton, _) = checkConfirmDialog(tester, unreadCount);
+        await tester.tap(find.byWidget(confirmButton));
         await tester.pumpAndSettle();
         checkErrorDialog(tester,
           expectedTitle: zulipLocalizations.errorMarkAsReadFailedTitle,
@@ -1156,12 +1580,14 @@ void main() {
   group('Update Narrow on message move', () {
     const topic = 'foo';
     final channel = eg.stream();
+    final subscription = eg.subscription(channel);
     final otherChannel = eg.stream();
+    final otherSubscription = eg.subscription(otherChannel);
     final narrow = eg.topicNarrow(channel.streamId, topic);
 
-    void prepareGetMessageResponse(List<Message> messages) {
+    void prepareGetMessageResponse(List<Message> messages, {bool foundOldest = false}) {
       connection.prepare(json: eg.newestGetMessagesResult(
-        foundOldest: false, messages: messages).toJson());
+        foundOldest: foundOldest, messages: messages).toJson());
     }
 
     Future<void> handleMessageMoveEvent(List<StreamMessage> messages, String newTopic, {int? newChannelId}) async {
@@ -1174,7 +1600,10 @@ void main() {
 
     testWidgets('compose box send message after move', (tester) async {
       final message = eg.streamMessage(stream: channel, topic: topic, content: 'Message to move');
-      await setupMessageListPage(tester, narrow: narrow, messages: [message], streams: [channel, otherChannel]);
+      await setupMessageListPage(tester,
+        narrow: narrow,
+        messages: [message],
+        subscriptions: [subscription, otherSubscription]);
 
       final channelContentInputFinder = find.descendant(
         of: find.byType(ComposeAutocomplete),
@@ -1214,14 +1643,28 @@ void main() {
 
     testWidgets('Move to narrow with existing messages', (tester) async {
       final message = eg.streamMessage(stream: channel, topic: topic, content: 'Message to move');
-      await setupMessageListPage(tester, narrow: narrow, messages: [message], streams: [channel]);
+      await setupMessageListPage(tester,
+        narrow: narrow, messages: [message], subscriptions: [subscription]);
       check(find.textContaining('Existing message').evaluate()).length.equals(0);
       check(find.textContaining('Message to move').evaluate()).length.equals(1);
 
+      final newChannel = eg.stream();
       final existingMessage = eg.streamMessage(
-        stream: eg.stream(), topic: 'new topic', content: 'Existing message');
-      prepareGetMessageResponse([existingMessage, message]);
-      await handleMessageMoveEvent([message], 'new topic');
+        stream: newChannel, topic: 'new topic', content: 'Existing message');
+      prepareGetMessageResponse(
+        // `foundOldest: true` just to avoid having to prepare a fetch-older
+        // response when a scroll-metrics notification occurs. (I don't really
+        // understand what causes that scroll-metrics notification, but it's not
+        // the focus of this test.)
+        foundOldest: true,
+        [
+          existingMessage,
+          Message.fromJson(deepToJson(message) as Map<String, dynamic>
+                             ..['stream_id'] = newChannel.streamId
+                             ..['subject'] = 'new topic'),
+        ]);
+      await handleMessageMoveEvent([message],
+        'new topic', newChannelId: newChannel.streamId);
       await tester.pump(const Duration(seconds: 1));
 
       check(find.textContaining('Existing message').evaluate()).length.equals(1);
@@ -1230,7 +1673,8 @@ void main() {
 
     testWidgets('show new topic in TopicNarrow after move', (tester) async {
       final message = eg.streamMessage(stream: channel, topic: topic, content: 'Message to move');
-      await setupMessageListPage(tester, narrow: narrow, messages: [message], streams: [channel]);
+      await setupMessageListPage(tester,
+        narrow: narrow, messages: [message], subscriptions: [subscription]);
 
       prepareGetMessageResponse([message]);
       await handleMessageMoveEvent([message], 'new topic');
@@ -1289,7 +1733,7 @@ void main() {
       testWidgets('do not show channel name in ChannelNarrow', (tester) async {
         await setupMessageListPage(tester,
           narrow: ChannelNarrow(stream.streamId),
-          messages: [message], streams: [stream]);
+          messages: [message], subscriptions: [eg.subscription(stream)]);
         await tester.pump();
         check(findInMessageList('stream name')).length.equals(0);
         check(findInMessageList('topic name')).length.equals(1);
@@ -1298,7 +1742,7 @@ void main() {
       testWidgets('do not show stream name in TopicNarrow', (tester) async {
         await setupMessageListPage(tester,
           narrow: TopicNarrow.ofMessage(message),
-          messages: [message], streams: [stream]);
+          messages: [message], subscriptions: [eg.subscription(stream)]);
         await tester.pump();
         check(findInMessageList('stream name')).length.equals(0);
         check(findInMessageList('topic name')).length.equals(1);
@@ -1479,7 +1923,7 @@ void main() {
         final message = eg.streamMessage(stream: channel, topic: 'topic name');
         await setupMessageListPage(tester,
           narrow: ChannelNarrow(channel.streamId),
-          streams: [channel],
+          subscriptions: [eg.subscription(channel)],
           messages: [message],
           navObservers: [navObserver]);
 
@@ -1505,7 +1949,7 @@ void main() {
         final message = eg.streamMessage(stream: channel, topic: 'topic name');
         await setupMessageListPage(tester,
           narrow: TopicNarrow.ofMessage(message),
-          streams: [channel],
+          subscriptions: [eg.subscription(channel)],
           messages: [message],
           navObservers: [navObserver]);
 
@@ -1834,7 +2278,7 @@ void main() {
           matching: find.byType(UserStatusEmoji));
         check(statusEmojiFinder).findsOne();
         check(tester.widget<UserStatusEmoji>(statusEmojiFinder)
-          .neverAnimate).isTrue();
+          .animationMode).equals(ImageAnimationMode.animateNever);
         check(find.ancestor(of: statusEmojiFinder,
           matching: find.byType(SenderRow))).findsOne();
       }
@@ -1984,11 +2428,16 @@ void main() {
           final navObserver = TestNavigatorObserver()
             ..onPushed = ((route, prevRoute) => lastPushedRoute = route);
 
+          final messages = [message];
+
           await setupMessageListPage(
             tester,
             narrow: narrow,
-            messages: [message],
+            messages: messages,
             subscriptions: [subscription],
+            starredMessages: messages
+              .where((message) => message.flags.contains(MessageFlag.starred))
+              .map((message) => message.id).toList(),
             navObservers: [navObserver]
           );
           lastPushedRoute = null;
@@ -2028,9 +2477,9 @@ void main() {
       doTest(expected: false, ChannelNarrow(subscription.streamId),
         mkMessage: () => eg.streamMessage(stream: subscription));
       doTest(expected: false, TopicNarrow(subscription.streamId, eg.t(topic)),
-        mkMessage: () => eg.streamMessage(stream: subscription));
-      doTest(expected: false, DmNarrow.withUsers([], selfUserId: eg.selfUser.userId),
         mkMessage: () => eg.streamMessage(stream: subscription, topic: topic));
+      doTest(expected: false, DmNarrow.withUsers([], selfUserId: eg.selfUser.userId),
+        mkMessage: () => eg.dmMessage(from: eg.selfUser, to: []));
       doTest(expected: true, StarredMessagesNarrow(),
         mkMessage: () => eg.streamMessage(flags: [MessageFlag.starred]));
       doTest(expected: true, MentionsNarrow(),
@@ -2110,7 +2559,7 @@ void main() {
 
     testWidgets('hidden -> waiting', (tester) async {
       await setupMessageListPage(tester,
-        narrow: topicNarrow, streams: [stream],
+        narrow: topicNarrow, subscriptions: [eg.subscription(stream)],
         messages: []);
 
       await sendMessageAndSucceed(tester);
@@ -2126,7 +2575,7 @@ void main() {
 
     testWidgets('hidden -> failed, tap to restore message', (tester) async {
       await setupMessageListPage(tester,
-        narrow: topicNarrow, streams: [stream],
+        narrow: topicNarrow, subscriptions: [eg.subscription(stream)],
         messages: []);
       // Send a message and fail.  Dismiss the error dialog as it pops up.
       await sendMessageAndFail(tester);
@@ -2174,7 +2623,7 @@ void main() {
 
     testWidgets('waiting -> waitPeriodExpired, tap to restore message', (tester) async {
       await setupMessageListPage(tester,
-        narrow: topicNarrow, streams: [stream],
+        narrow: topicNarrow, subscriptions: [eg.subscription(stream)],
         messages: []);
       await sendMessageAndFail(tester,
         delay: kSendMessageOfferRestoreWaitPeriod + const Duration(seconds: 1));
@@ -2199,13 +2648,15 @@ void main() {
   group('Starred messages', () {
     testWidgets('unstarred message', (tester) async {
       final message = eg.streamMessage(flags: []);
-      await setupMessageListPage(tester, messages: [message]);
+      await setupMessageListPage(tester,
+        messages: [message], starredMessages: []);
       check(find.byIcon(ZulipIcons.star_filled).evaluate()).isEmpty();
     });
 
     testWidgets('starred message', (tester) async {
       final message = eg.streamMessage(flags: [MessageFlag.starred]);
-      await setupMessageListPage(tester, messages: [message]);
+      await setupMessageListPage(tester,
+        messages: [message], starredMessages: [message.id]);
       check(find.byIcon(ZulipIcons.star_filled).evaluate()).length.equals(1);
     });
   });
@@ -2425,6 +2876,109 @@ void main() {
       check(getAnimation(tester, newMessage.id))
         ..value.equals(0.0)
         ..status.equals(AnimationStatus.dismissed);
+    });
+  });
+
+  group('recipient header navigation in multi-channel narrows', () {
+    late List<Route<void>> pushedRoutes;
+
+    final channel = eg.stream();
+    const testTopic = 'testTopic';
+    final message = eg.streamMessage(stream: channel, topic: testTopic);
+
+    final recipientHeaderFinder = find.byType(StreamMessageRecipientHeader);
+    late Rect recipientHeaderRect;
+
+    Future<void> prepare(WidgetTester tester) async {
+      pushedRoutes = [];
+      final navObserver = TestNavigatorObserver()
+        ..onPushed = (route, prevRoute) => pushedRoutes.add(route);
+
+      await setupMessageListPage(tester,
+        narrow: const CombinedFeedNarrow(),
+        streams: [channel],
+        subscriptions: [eg.subscription(channel)],
+        messages: [message],
+        navObservers: [navObserver]);
+
+      assert(pushedRoutes.length == 1);
+      pushedRoutes.clear();
+
+      recipientHeaderRect = tester.getRect(recipientHeaderFinder);
+    }
+
+    // Regression test for: https://github.com/zulip/zulip-flutter/issues/1179
+    testWidgets("navigates to ChannelNarrow when tapping above or below channel name in recipient header", (tester) async {
+      await prepare(tester);
+
+      final channelNameFinder = find.descendant(
+        of: recipientHeaderFinder,
+        matching: find.text(channel.name));
+      final channelNameRect = tester.getRect(channelNameFinder);
+
+      connection.prepare(json: eg.newestGetMessagesResult(
+        foundOldest: true, messages: [message]).toJson());
+      // Tap just right below the top of recipient header, above and outside of
+      // its channel name component.
+      await tester.tapAt(Offset(
+        channelNameRect.center.dx, recipientHeaderRect.top + 1));
+      await tester.pump();
+      check(pushedRoutes).single.isA<WidgetRoute>().page.isA<MessageListPage>()
+        .initNarrow.equals(ChannelNarrow(channel.streamId));
+      await tester.pumpAndSettle();
+
+      // Navigate back to original page and clear routes.
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      pushedRoutes.clear();
+
+      connection.prepare(json: eg.newestGetMessagesResult(
+        foundOldest: true, messages: [message]).toJson());
+      // Tap just above the bottom of recipient header, below and outside of
+      // its channel name component.
+      await tester.tapAt(Offset(
+        channelNameRect.center.dx, recipientHeaderRect.bottom - 1));
+      await tester.pump();
+      check(pushedRoutes).single.isA<WidgetRoute>().page.isA<MessageListPage>()
+        .initNarrow.equals(ChannelNarrow(channel.streamId));
+      await tester.pumpAndSettle();
+    });
+
+    // Regression test for: https://github.com/zulip/zulip-flutter/issues/1179
+    testWidgets("navigates to TopicNarrow when tapping above or below topic name in recipient header", (tester) async {
+      await prepare(tester);
+
+      final topicNameFinder = find.descendant(
+        of: recipientHeaderFinder,
+        matching: find.text(testTopic));
+      final topicNameRect = tester.getRect(topicNameFinder);
+
+      connection.prepare(json: eg.newestGetMessagesResult(
+        foundOldest: true, messages: [message]).toJson());
+      // Tap just right below the top of recipient header, above and outside of
+      // its topic name component.
+      await tester.tapAt(Offset(
+        topicNameRect.center.dx, recipientHeaderRect.top + 1));
+      await tester.pump();
+      check(pushedRoutes).single.isA<WidgetRoute>().page.isA<MessageListPage>()
+        .initNarrow.equals(TopicNarrow(channel.streamId, message.topic));
+      await tester.pumpAndSettle();
+
+      // Navigate back to original page and clear routes.
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      pushedRoutes.clear();
+
+      connection.prepare(json: eg.newestGetMessagesResult(
+        foundOldest: true, messages: [message]).toJson());
+      // Tap just above the bottom of recipient header, below and outside of
+      // its topic name component.
+      await tester.tapAt(Offset(
+        topicNameRect.center.dx, recipientHeaderRect.bottom - 1));
+      await tester.pump();
+      check(pushedRoutes).single.isA<WidgetRoute>().page.isA<MessageListPage>()
+        .initNarrow.equals(TopicNarrow(channel.streamId, message.topic));
+      await tester.pumpAndSettle();
     });
   });
 }

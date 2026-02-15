@@ -9,7 +9,8 @@ import 'package:zulip/widgets/color.dart';
 import 'package:zulip/widgets/home.dart';
 import 'package:zulip/widgets/icons.dart';
 import 'package:zulip/widgets/channel_colors.dart';
-import 'package:zulip/widgets/unread_count_badge.dart';
+import 'package:zulip/widgets/theme.dart';
+import 'package:zulip/widgets/counter_badge.dart';
 
 import '../example_data.dart' as eg;
 import '../flutter_checks.dart';
@@ -206,6 +207,28 @@ void main() {
       await setupVarious(tester);
     });
 
+    testWidgets('UnreadCountBadge text color for a channel', (tester) async {
+      // Regression test for a bug where
+      // DesignVariables.labelCounterUnread was used for the text instead of
+      // DesignVariables.unreadCountBadgeTextForChannel.
+      final channel = eg.stream();
+      final subscription  = eg.subscription(channel);
+      await setupPage(tester,
+        streams: [channel],
+        subscriptions: [subscription],
+        unreadMessages: generateStreamMessages(stream: channel, count: 1, flags: []));
+
+      final text = tester.widget<Text>(
+        find.descendant(
+          of: find.byWidget(findRowByLabel(tester, channel.name)!),
+          matching: find.descendant(
+            of: find.byType(CounterBadge),
+            matching: find.text('1'))));
+
+      final expectedTextColor = DesignVariables.light.unreadCountBadgeTextForChannel;
+      check(text).style.isNotNull().color.isNotNull().isSameColorAs(expectedTextColor);
+    });
+
     // TODO test that tapping a conversation row opens the message list
     //   for the conversation
 
@@ -383,19 +406,19 @@ void main() {
 
         check(find.descendant(
           of: find.byWidget(findRowByLabel(tester, 'aaa')!),
-          matching: find.widgetWithText(UnreadCountBadge, '1'))).findsOne();
+          matching: find.widgetWithText(CounterBadge, '1'))).findsOne();
 
         await store.handleEvent(eg.updateMessageFlagsRemoveEvent(MessageFlag.read, [message2]));
         await tester.pump();
         check(find.descendant(
           of: find.byWidget(findRowByLabel(tester, 'aaa')!),
-          matching: find.widgetWithText(UnreadCountBadge, '2'))).findsOne();
+          matching: find.widgetWithText(CounterBadge, '2'))).findsOne();
 
         await store.handleEvent(eg.updateMessageFlagsRemoveEvent(MessageFlag.read, [message3]));
         await tester.pump();
         check(find.descendant(
           of: find.byWidget(findRowByLabel(tester, 'aaa')!),
-          matching: find.widgetWithText(UnreadCountBadge, '3'))).findsOne();
+          matching: find.widgetWithText(CounterBadge, '3'))).findsOne();
       });
     });
 

@@ -622,9 +622,10 @@ class MessageListView with ChangeNotifier, _MessageSequence {
   Narrow get narrow => _narrow;
   Narrow _narrow;
 
-  /// Set [narrow] to [newNarrow], reset, [notifyListeners], and [fetchInitial].
-  void renarrowAndFetch(Narrow newNarrow) {
+  /// Set [narrow] and [anchor], reset, [notifyListeners], and [fetchInitial].
+  void renarrowAndFetch(Narrow newNarrow, Anchor anchor) {
     _narrow = newNarrow;
+    _anchor = anchor;
     _reset();
     notifyListeners();
     fetchInitial();
@@ -664,10 +665,22 @@ class MessageListView with ChangeNotifier, _MessageSequence {
   /// Whether [message] should actually appear in this message list,
   /// given that it does belong to the narrow.
   ///
-  /// This depends in particular on whether the message is muted in
-  /// one way or another.
+  /// This depends in particular on whether the message's conversation is muted
+  /// in one way or another.
+  ///
+  /// The muted-users state can influence the result,
+  /// but only via [UserStore.shouldMuteDmConversation];
+  /// this never returns false just because [message]'s sender is muted.
+  /// UI logic mitigates harassment by obscuring messages from muted senders,
+  /// with a "reveal" button;
+  /// see [RevealedMutedMessagesState] in lib/widgets/message_list.dart.
   ///
   /// See also [_allMessagesVisible].
+  // When updating this, check [_allMessagesVisible], [_canAffectVisibility],
+  // and [_mutedUsersEventCanAffectVisibility] to see whether they need to be
+  // updated too.
+  // Also check the unread-count methods in [Unreads] to make sure they count
+  // exactly the unread messages for which this would return true.
   bool _messageVisible(MessageBase message) {
     switch (narrow) {
       case CombinedFeedNarrow():
@@ -686,11 +699,34 @@ class MessageListView with ChangeNotifier, _MessageSequence {
         return store.isTopicVisibleInStream(streamId, message.conversation.topic);
 
       case TopicNarrow():
+        assert((narrow as TopicNarrow).containsMessage(message));
+        return true;
+
       case DmNarrow():
+        assert((narrow as DmNarrow).containsMessage(message));
         return true;
 
       case MentionsNarrow():
+        // If changing this, consider whether [Unreads.countInMentionsNarrow]
+        // should be changed correspondingly, so the message-list view matches
+        // the unread-count badge.
+        if (message.conversation case DmConversation(:final allRecipientIds)) {
+          return !store.shouldMuteDmConversation(DmNarrow(
+            allRecipientIds: allRecipientIds, selfUserId: store.selfUserId));
+        }
+        return true;
+
       case StarredMessagesNarrow():
+        // Include messages even if muted in some way.
+        // Other users can't spam the starred-messages view by starring;
+        // the starred state is read/write by the self-user only.
+        //
+        // If we want to change this, consider that we need to compute a
+        // starred-message count without relying on fetched message data:
+        //   https://zulip.com/help/star-a-message#view-your-starred-messages
+        // ([MessageStore.starredMessages] is just a list of message IDs.)
+        return true;
+
       case KeywordSearchNarrow():
         if (message.conversation case DmConversation(:final allRecipientIds)) {
           return !store.shouldMuteDmConversation(DmNarrow(
@@ -714,7 +750,11 @@ class MessageListView with ChangeNotifier, _MessageSequence {
         return true;
 
       case MentionsNarrow():
+        return false;
+
       case StarredMessagesNarrow():
+        return true;
+
       case KeywordSearchNarrow():
         return false;
     }
@@ -753,7 +793,11 @@ class MessageListView with ChangeNotifier, _MessageSequence {
         return MutedUsersVisibilityEffect.none;
 
       case MentionsNarrow():
+        return store.mightChangeShouldMuteDmConversation(event);
+
       case StarredMessagesNarrow():
+        return MutedUsersVisibilityEffect.none;
+
       case KeywordSearchNarrow():
         return store.mightChangeShouldMuteDmConversation(event);
     }
@@ -873,12 +917,6 @@ class MessageListView with ChangeNotifier, _MessageSequence {
       numBefore: kMessageListFetchBatchSize,
       numAfter: 0,
       processResult: (result) {
-        if (result.messages.isNotEmpty
-            && result.messages.last.id == messages[0].id) {
-          // TODO(server-6): includeAnchor should make this impossible
-          result.messages.removeLast();
-        }
-
         store.reconcileMessages(result.messages);
         store.recentSenders.handleMessages(result.messages); // TODO(#824)
 
@@ -909,12 +947,6 @@ class MessageListView with ChangeNotifier, _MessageSequence {
       numBefore: 0,
       numAfter: kMessageListFetchBatchSize,
       processResult: (result) {
-        if (result.messages.isNotEmpty
-            && result.messages.first.id == messages.last.id) {
-          // TODO(server-6): includeAnchor should make this impossible
-          result.messages.removeAt(0);
-        }
-
         store.reconcileMessages(result.messages);
         store.recentSenders.handleMessages(result.messages); // TODO(#824)
 
@@ -1185,7 +1217,8 @@ class MessageListView with ChangeNotifier, _MessageSequence {
     switch (propagateMode) {
       case PropagateMode.changeAll:
       case PropagateMode.changeLater:
-        renarrowAndFetch(newNarrow);
+        // TODO(#1009) anchor to some visible message, if any
+        renarrowAndFetch(newNarrow, anchor);
       case PropagateMode.changeOne:
     }
   }

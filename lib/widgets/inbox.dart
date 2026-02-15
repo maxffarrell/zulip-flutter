@@ -13,7 +13,7 @@ import 'sticky_header.dart';
 import 'store.dart';
 import 'text.dart';
 import 'theme.dart';
-import 'unread_count_badge.dart';
+import 'counter_badge.dart';
 
 class InboxPageBody extends StatefulWidget {
   const InboxPageBody({super.key});
@@ -165,7 +165,8 @@ class _InboxPageState extends State<InboxPageBody> with PerAccountStoreAwareStat
     if (sections.isEmpty) {
       return PageBodyEmptyContentPlaceholder(
         // TODO(#315) add e.g. "You might be interested in recent conversations."
-        message: zulipLocalizations.inboxEmptyPlaceholder);
+        header: zulipLocalizations.inboxEmptyPlaceholderHeader,
+        message: zulipLocalizations.inboxEmptyPlaceholderMessage);
     }
 
     return SafeArea( // horizontal insets
@@ -249,7 +250,9 @@ abstract class _HeaderItem extends StatelessWidget {
   Color collapsedIconColor(BuildContext context);
   Color uncollapsedIconColor(BuildContext context);
   Color uncollapsedBackgroundColor(BuildContext context);
-  Color? unreadCountBadgeBackgroundColor(BuildContext context);
+
+  /// A channel ID, if this represents a channel, else null.
+  int? get channelId;
 
   Future<void> onCollapseButtonTap() async {
     if (!collapsed) {
@@ -266,7 +269,7 @@ abstract class _HeaderItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final zulipLocalizations = ZulipLocalizations.of(context);
     final designVariables = DesignVariables.of(context);
-    return Material(
+    Widget result = Material(
       color: collapsed
         ? designVariables.background // TODO(design) check if this is the right variable
         : uncollapsedBackgroundColor(context),
@@ -306,11 +309,15 @@ abstract class _HeaderItem extends StatelessWidget {
           const SizedBox(width: 12),
           if (hasMention) const _IconMarker(icon: ZulipIcons.at_sign),
           Padding(padding: const EdgeInsetsDirectional.only(end: 16),
-            child: UnreadCountBadge(
-              backgroundColor: unreadCountBadgeBackgroundColor(context),
-              bold: true,
+            child: CounterBadge(
+              // TODO(design) use CounterKind.quantity, following Figma
+              kind: CounterBadgeKind.unread,
+              channelIdForBackground: channelId,
               count: count)),
         ])));
+
+    return Semantics(container: true,
+      child: result);
   }
 }
 
@@ -332,7 +339,7 @@ class _AllDmsHeaderItem extends _HeaderItem {
   @override Color uncollapsedIconColor(context) => DesignVariables.of(context).labelMenuButton;
 
   @override Color uncollapsedBackgroundColor(context) => DesignVariables.of(context).dmHeaderBg;
-  @override Color? unreadCountBadgeBackgroundColor(context) => null;
+  @override int? get channelId => null;
 
   @override Future<void> onCollapseButtonTap() async {
     await super.onCollapseButtonTap();
@@ -404,7 +411,7 @@ class _DmItem extends StatelessWidget {
       _ => narrow.otherRecipientIds.map(store.userDisplayName).join(', '),
     };
 
-    return Material(
+    Widget result = Material(
       color: designVariables.background, // TODO(design) check if this is the right variable
       child: InkWell(
         onTap: () {
@@ -429,9 +436,15 @@ class _DmItem extends StatelessWidget {
             const SizedBox(width: 12),
             if (hasMention) const  _IconMarker(icon: ZulipIcons.at_sign),
             Padding(padding: const EdgeInsetsDirectional.only(end: 16),
-              child: UnreadCountBadge(backgroundColor: null,
+              child: CounterBadge(
+                // TODO(design) use CounterKind.quantity, following Figma
+                kind: CounterBadgeKind.unread,
+                channelIdForBackground: null,
                 count: count)),
           ]))));
+
+    return Semantics(container: true,
+      child: result);
   }
 }
 
@@ -462,8 +475,7 @@ class _StreamHeaderItem extends _HeaderItem with _LongPressable {
     colorSwatchFor(context, subscription).iconOnBarBackground;
   @override Color uncollapsedBackgroundColor(context) =>
     colorSwatchFor(context, subscription).barBackground;
-  @override Color? unreadCountBadgeBackgroundColor(context) =>
-    colorSwatchFor(context, subscription).unreadCountBadgeBackground;
+  @override int? get channelId => subscription.streamId;
 
   @override Future<void> onCollapseButtonTap() async {
     await super.onCollapseButtonTap();
@@ -526,13 +538,12 @@ class _TopicItem extends StatelessWidget {
       :topic, :count, :hasMention, :lastUnreadId) = data;
 
     final store = PerAccountStoreWidget.of(context);
-    final subscription = store.subscriptions[streamId]!;
 
     final designVariables = DesignVariables.of(context);
     final visibilityIcon = iconDataForTopicVisibilityPolicy(
       store.topicVisibilityPolicy(streamId, topic));
 
-    return Material(
+    Widget result = Material(
       color: designVariables.background, // TODO(design) check if this is the right variable
       child: InkWell(
         onTap: () {
@@ -565,10 +576,15 @@ class _TopicItem extends StatelessWidget {
             // TODO(design) copies the "@" marker color; is there a better color?
             if (visibilityIcon != null) _IconMarker(icon: visibilityIcon),
             Padding(padding: const EdgeInsetsDirectional.only(end: 16),
-              child: UnreadCountBadge(
-                backgroundColor: colorSwatchFor(context, subscription),
+              child: CounterBadge(
+                // TODO(design) use CounterKind.quantity, following Figma
+                kind: CounterBadgeKind.unread,
+                channelIdForBackground: streamId,
                 count: count)),
           ]))));
+
+    return Semantics(container: true,
+      child: result);
   }
 }
 

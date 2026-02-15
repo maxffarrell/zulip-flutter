@@ -71,7 +71,13 @@ sealed class Event {
           case 'peer_remove': return SubscriptionPeerRemoveEvent.fromJson(json);
           default: return UnexpectedEvent.fromJson(json);
         }
-      // case 'muted_topics': … // TODO(#422) we ignore this feature on older servers
+      case 'channel_folder':
+        switch (json['op'] as String) {
+          case 'add': return ChannelFolderAddEvent.fromJson(json);
+          case 'reorder': return ChannelFolderReorderEvent.fromJson(json);
+          case 'update': return ChannelFolderUpdateEvent.fromJson(json);
+          default: return UnexpectedEvent.fromJson(json);
+        }
       case 'user_status': return UserStatusEvent.fromJson(json);
       case 'user_topic': return UserTopicEvent.fromJson(json);
       case 'muted_users': return MutedUsersEvent.fromJson(json);
@@ -179,6 +185,7 @@ class UserSettingsUpdateEvent extends Event {
     switch (UserSettingName.fromRawString(json['property'] as String)) {
       case UserSettingName.twentyFourHourTime:
         return TwentyFourHourTimeMode.fromApiValue(value as bool?);
+      case UserSettingName.starredMessageCounts:
       case UserSettingName.displayEmojiReactionUsers:
         return value as bool;
       case UserSettingName.emojiset:
@@ -610,9 +617,21 @@ class ChannelDeleteEvent extends ChannelEvent {
   @JsonKey(includeToJson: true)
   String get op => 'delete';
 
-  final List<ZulipStream> streams;
+  @JsonKey(name: 'stream_ids', readValue: _readChannelIds)
+  final List<int> channelIds;
 
-  ChannelDeleteEvent({required super.id, required this.streams});
+  // TODO(server-10) simplify away; rely on stream_ids
+  static List<int> _readChannelIds(Map<dynamic, dynamic> json, String key) {
+    final channelIds = json['stream_ids'] as List<dynamic>?;
+    if (channelIds != null) return channelIds.map((id) => id as int).toList();
+
+    final channels = json['streams'] as List<dynamic>;
+    return channels
+      .map((c) => (c as Map<String, dynamic>)['stream_id'] as int)
+      .toList();
+  }
+
+  ChannelDeleteEvent({required super.id, required this.channelIds});
 
   factory ChannelDeleteEvent.fromJson(Map<String, dynamic> json) =>
     _$ChannelDeleteEventFromJson(json);
@@ -664,6 +683,9 @@ class ChannelUpdateEvent extends ChannelEvent {
     final value = json['value'];
     switch (ChannelPropertyName.fromRawString(json['property'] as String)) {
       case ChannelPropertyName.name:
+        return value as String;
+      case ChannelPropertyName.isArchived:
+        return value as bool;
       case ChannelPropertyName.description:
         return value as String;
       case ChannelPropertyName.firstMessageId:
@@ -674,9 +696,16 @@ class ChannelUpdateEvent extends ChannelEvent {
         return value as int?;
       case ChannelPropertyName.channelPostPolicy:
         return ChannelPostPolicy.fromApiValue(value as int);
+      case ChannelPropertyName.folderId:
+        return value as int?;
       case ChannelPropertyName.canAddSubscribersGroup:
+      case ChannelPropertyName.canDeleteAnyMessageGroup:
+      case ChannelPropertyName.canDeleteOwnMessageGroup:
+      case ChannelPropertyName.canSendMessageGroup:
       case ChannelPropertyName.canSubscribeGroup:
         return GroupSettingValue.fromJson(value);
+      case ChannelPropertyName.isRecentlyActive:
+        return value as bool;
       case ChannelPropertyName.streamWeeklyTraffic:
         return value as int?;
       case null:
@@ -757,6 +786,7 @@ class SubscriptionUpdateEvent extends SubscriptionEvent {
 
   final int streamId;
 
+  @JsonKey(unknownEnumValue: SubscriptionProperty.unknown)
   final SubscriptionProperty property;
 
   /// The new value, or null if we don't recognize the setting.
@@ -777,7 +807,6 @@ class SubscriptionUpdateEvent extends SubscriptionEvent {
         assert(RegExp(r'^#[0-9a-f]{6}$').hasMatch(str));
         return 0xff000000 | int.parse(str.substring(1), radix: 16);
       case SubscriptionProperty.isMuted:
-      case SubscriptionProperty.inHomeView:
       case SubscriptionProperty.pinToTop:
       case SubscriptionProperty.desktopNotifications:
       case SubscriptionProperty.audibleNotifications:
@@ -802,31 +831,6 @@ class SubscriptionUpdateEvent extends SubscriptionEvent {
 
   @override
   Map<String, dynamic> toJson() => _$SubscriptionUpdateEventToJson(this);
-}
-
-/// The name of a property in [Subscription].
-///
-/// Used in handling of [SubscriptionUpdateEvent].
-@JsonEnum(fieldRename: FieldRename.snake, alwaysCreate: true)
-enum SubscriptionProperty {
-  /// As an int that dart:ui's Color constructor will take:
-  ///   <https://api.flutter.dev/flutter/dart-ui/Color/Color.html>
-  color,
-
-  isMuted,
-  inHomeView,
-  pinToTop,
-  desktopNotifications,
-  audibleNotifications,
-  pushNotifications,
-  emailNotifications,
-  wildcardMentionsNotify,
-  unknown;
-
-  static SubscriptionProperty fromRawString(String raw) => _byRawString[raw] ?? unknown;
-
-  static final _byRawString = _$SubscriptionPropertyEnumMap
-    .map((key, value) => MapEntry(value, key));
 }
 
 /// A [SubscriptionEvent] with op `peer_add`: https://zulip.com/api/get-events#subscription-peer_add
@@ -873,6 +877,103 @@ class SubscriptionPeerRemoveEvent extends SubscriptionEvent {
 
   @override
   Map<String, dynamic> toJson() => _$SubscriptionPeerRemoveEventToJson(this);
+}
+
+/// A Zulip event of type `channel_folder`.
+///
+/// The corresponding API docs are in several places for
+/// different values of `op`; see subclasses.
+sealed class ChannelFolderEvent extends Event {
+  @override
+  @JsonKey(includeToJson: true)
+  String get type => 'channel_folder';
+
+  String get op;
+
+  ChannelFolderEvent({required super.id});
+}
+
+/// A [ChannelFolderEvent] with op `add`:
+///   https://zulip.com/api/get-events#channel_folder-add
+@JsonSerializable(fieldRename: FieldRename.snake)
+class ChannelFolderAddEvent extends ChannelFolderEvent {
+  @override
+  @JsonKey(includeToJson: true)
+  String get op => 'add';
+
+  final ChannelFolder channelFolder;
+
+  ChannelFolderAddEvent({required super.id, required this.channelFolder});
+
+  factory ChannelFolderAddEvent.fromJson(Map<String, dynamic> json) =>
+    _$ChannelFolderAddEventFromJson(json);
+
+  @override
+  Map<String, dynamic> toJson() => _$ChannelFolderAddEventToJson(this);
+}
+
+/// A [ChannelFolderEvent] with op `update`:
+///   https://zulip.com/api/get-events#channel_folder-update
+@JsonSerializable(fieldRename: FieldRename.snake)
+class ChannelFolderUpdateEvent extends ChannelFolderEvent {
+  @override
+  @JsonKey(includeToJson: true)
+  String get op => 'update';
+
+  final int channelFolderId;
+  final ChannelFolderChange data;
+
+  ChannelFolderUpdateEvent({
+    required super.id,
+    required this.channelFolderId,
+    required this.data,
+  });
+
+  factory ChannelFolderUpdateEvent.fromJson(Map<String, dynamic> json) =>
+    _$ChannelFolderUpdateEventFromJson(json);
+
+  @override
+  Map<String, dynamic> toJson() => _$ChannelFolderUpdateEventToJson(this);
+}
+
+/// Details of a channel-folder change, as in [ChannelFolderUpdateEvent.data].
+@JsonSerializable(fieldRename: FieldRename.snake)
+class ChannelFolderChange {
+  final String? name;
+  final String? description;
+  final String? renderedDescription;
+  final bool? isArchived;
+
+  ChannelFolderChange({
+    required this.name,
+    required this.description,
+    required this.renderedDescription,
+    required this.isArchived,
+  });
+
+  factory ChannelFolderChange.fromJson(Map<String, dynamic> json) =>
+    _$ChannelFolderChangeFromJson(json);
+
+  Map<String, dynamic> toJson() => _$ChannelFolderChangeToJson(this);
+}
+
+/// A [ChannelFolderEvent] with op `update`:
+///   https://zulip.com/api/get-events#channel_folder-update
+@JsonSerializable(fieldRename: FieldRename.snake)
+class ChannelFolderReorderEvent extends ChannelFolderEvent {
+  @override
+  @JsonKey(includeToJson: true)
+  String get op => 'reorder';
+
+  final List<int> order;
+
+  ChannelFolderReorderEvent({required super.id, required this.order});
+
+  factory ChannelFolderReorderEvent.fromJson(Map<String, dynamic> json) =>
+    _$ChannelFolderReorderEventFromJson(json);
+
+  @override
+  Map<String, dynamic> toJson() => _$ChannelFolderReorderEventToJson(this);
 }
 
 /// A Zulip event of type `user_status`: https://zulip.com/api/get-events#user_status

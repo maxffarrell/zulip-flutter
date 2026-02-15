@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:test/scaffolding.dart';
 import 'package:zulip/api/exception.dart';
 import 'package:zulip/api/model/events.dart';
+import 'package:zulip/api/model/initial_snapshot.dart';
 import 'package:zulip/api/model/model.dart';
 import 'package:zulip/api/model/submessage.dart';
 import 'package:zulip/api/route/messages.dart';
@@ -35,40 +36,63 @@ void main() {
 
   // These "late" variables are the common state operated on by each test.
   // Each test case calls [prepare] to initialize them.
-  late Subscription subscription;
+  late Subscription? subscription;
   late PerAccountStore store;
+  late int perAccountStoreNotifiedCount;
+
   late FakeApiConnection connection;
+
   // [messageList] is here only for the sake of checking when it notifies.
   // For anything deeper than that, use `message_list_test.dart`.
   late MessageListView messageList;
-  late int notifiedCount;
+  late int msglistNotifiedCount;
 
-  void checkNotified({required int count}) {
-    check(notifiedCount).equals(count);
-    notifiedCount = 0;
+  void checkNotified({required int count, int storeCount = 0}) {
+    check(because: 'checking number of MessageListView.notifyListeners calls',
+      msglistNotifiedCount).equals(count);
+    msglistNotifiedCount = 0;
+    check(because: 'checking number of PerAccountStore.notifyListeners calls',
+      perAccountStoreNotifiedCount).equals(storeCount);
+    perAccountStoreNotifiedCount = 0;
   }
   void checkNotNotified() => checkNotified(count: 0);
   void checkNotifiedOnce() => checkNotified(count: 1);
 
   /// Initialize [store] and the rest of the test state.
   Future<void> prepare({
+    Narrow narrow = const CombinedFeedNarrow(),
     ZulipStream? stream,
+    bool isChannelSubscribed = true,
+    List<int>? starredMessages = const [],
     int? zulipFeatureLevel,
   }) async {
     stream ??= eg.stream(streamId: eg.defaultStreamMessageStreamId);
-    subscription = eg.subscription(stream);
     final selfAccount = eg.selfAccount.copyWith(zulipFeatureLevel: zulipFeatureLevel);
+
     store = eg.store(account: selfAccount,
-      initialSnapshot: eg.initialSnapshot(zulipFeatureLevel: zulipFeatureLevel));
+      initialSnapshot: eg.initialSnapshot(
+        starredMessages: starredMessages,
+        zulipFeatureLevel: zulipFeatureLevel));
     await store.addStream(stream);
-    await store.addSubscription(subscription);
+    if (isChannelSubscribed) {
+      subscription = eg.subscription(stream);
+      await store.addSubscription(subscription!);
+    } else {
+      subscription = null;
+    }
+    perAccountStoreNotifiedCount = 0;
+    store.addListener(() {
+      perAccountStoreNotifiedCount++;
+    });
+
     connection = store.connection as FakeApiConnection;
-    notifiedCount = 0;
+
+    msglistNotifiedCount = 0;
     messageList = MessageListView.init(store: store,
-        narrow: const CombinedFeedNarrow(),
+        narrow: narrow,
         anchor: AnchorCode.newest)
       ..addListener(() {
-        notifiedCount++;
+        msglistNotifiedCount++;
       });
     addTearDown(messageList.dispose);
     check(messageList).fetched.isFalse();
@@ -120,10 +144,13 @@ void main() {
 
   group('sendMessage', () {
     test('smoke', () async {
+      final stream = eg.stream();
+      final subscription = eg.subscription(stream);
       final store = eg.store(initialSnapshot: eg.initialSnapshot(
         queueId: 'fb67bf8a-c031-47cc-84cf-ed80accacda8'));
+      await store.addStream(stream);
+      await store.addSubscription(subscription);
       final connection = store.connection as FakeApiConnection;
-      final stream = eg.stream();
       connection.prepare(json: SendMessageResult(id: 12345).toJson());
       await store.sendMessage(
         destination: StreamDestination(stream.streamId, eg.t('world')),
@@ -163,11 +190,17 @@ void main() {
       check(store.outboxMessages).values.single.state;
 
     Future<void> prepareOutboxMessage({
+      Narrow narrow = const CombinedFeedNarrow(),
       MessageDestination? destination,
+      bool isChannelSubscribed = true,
       int? zulipFeatureLevel,
     }) async {
       message = eg.streamMessage(stream: stream);
-      await prepare(stream: stream, zulipFeatureLevel: zulipFeatureLevel);
+      await prepare(
+        narrow: narrow,
+        stream: stream,
+        isChannelSubscribed: isChannelSubscribed,
+        zulipFeatureLevel: zulipFeatureLevel);
       await prepareMessages([eg.streamMessage(stream: stream)]);
       connection.prepare(json: SendMessageResult(id: 1).toJson());
       await store.sendMessage(
@@ -359,6 +392,16 @@ void main() {
         checkNotNotified();
       }));
 
+      test('hidden -> (delete) because send succeeded in unsubscribed channel', () => awaitFakeAsync((async) async {
+        await prepareOutboxMessage(
+          // Not CombinedFeedNarrow,
+          // which always hides outbox messages in unsubscribed channels.
+          narrow: ChannelNarrow(stream.streamId),
+          isChannelSubscribed: false);
+        check(store.outboxMessages).isEmpty();
+        checkNotNotified();
+      }));
+
       test('waiting -> (delete) because event received', () => awaitFakeAsync((async) async {
         await prepareOutboxMessage();
         async.elapse(kLocalEchoDebounceDuration);
@@ -389,6 +432,28 @@ void main() {
         // in the store any more.
         await check(outboxMessageFailFuture).completes();
         checkNotNotified();
+      }));
+
+      test('waiting -> (delete) because send succeeded in unsubscribed channel', () => awaitFakeAsync((async) async {
+        await prepare(
+          // Not CombinedFeedNarrow,
+          // which always hides outbox messages in unsubscribed channels.
+          narrow: ChannelNarrow(stream.streamId),
+          stream: stream,
+          isChannelSubscribed: false);
+        await prepareMessages([eg.streamMessage(stream: stream)]);
+        connection.prepare(json: SendMessageResult(id: 1).toJson(),
+          delay: kLocalEchoDebounceDuration + Duration(seconds: 1));
+        final future = store.sendMessage(
+          destination: streamDestination, content: 'content');
+        async.elapse(kLocalEchoDebounceDuration);
+        checkState().equals(OutboxMessageState.waiting);
+        checkNotifiedOnce();
+
+        async.elapse(Duration(seconds: 1));
+        await check(future).completes();
+        check(store.outboxMessages).isEmpty();
+        checkNotifiedOnce();
       }));
 
       test('waitPeriodExpired -> (delete) when event arrives before send request fails', () => awaitFakeAsync((async) async {
@@ -422,6 +487,27 @@ void main() {
         checkNotified(count: 2);
 
         store.takeOutboxMessage(store.outboxMessages.keys.single);
+        check(store.outboxMessages).isEmpty();
+        checkNotifiedOnce();
+      }));
+
+      test('waitPeriodExpired -> (delete) because send succeeded in unsubscribed channel', () => awaitFakeAsync((async) async {
+        await prepare(
+          // Not CombinedFeedNarrow,
+          // which always hides outbox messages in unsubscribed channels.
+          narrow: ChannelNarrow(stream.streamId),
+          isChannelSubscribed: false);
+        await prepareMessages([eg.streamMessage(stream: stream)]);
+        connection.prepare(json: SendMessageResult(id: 1).toJson(),
+          delay: kSendMessageOfferRestoreWaitPeriod + Duration(seconds: 1));
+        final future = store.sendMessage(
+          destination: streamDestination, content: 'content');
+        async.elapse(kSendMessageOfferRestoreWaitPeriod);
+        checkState().equals(OutboxMessageState.waitPeriodExpired);
+        checkNotified(count: 2);
+
+        async.elapse(Duration(seconds: 1));
+        await check(future).completes();
         check(store.outboxMessages).isEmpty();
         checkNotifiedOnce();
       }));
@@ -497,6 +583,9 @@ void main() {
   });
 
   group('reconcileMessages', () {
+    Condition<Object?> conditionIdentical<T>(T element) =>
+      (it) => it.identicalTo(element);
+
     test('from empty', () async {
       await prepare();
       check(store.messages).isEmpty();
@@ -506,8 +595,7 @@ void main() {
       final messages = <Message>[message1, message2, message3];
       store.reconcileMessages(messages);
       check(messages).deepEquals(
-        [message1, message2, message3]
-          .map((m) => (Subject<Object?> it) => it.identicalTo(m)));
+        [message1, message2, message3].map(conditionIdentical));
       check(store.messages).deepEquals({
         for (final m in messages) m.id: m,
       });
@@ -523,24 +611,144 @@ void main() {
       final newMessage = eg.streamMessage();
       store.reconcileMessages([newMessage]);
       check(messages).deepEquals(
-        [message1, message2, message3]
-          .map((m) => (Subject<Object?> it) => it.identicalTo(m)));
+        [message1, message2, message3].map(conditionIdentical));
       check(store.messages).deepEquals({
         for (final m in messages) m.id: m,
         newMessage.id: newMessage,
       });
     });
 
-    test('on ID collision, new message does not clobber old in store.messages', () async {
-      await prepare();
-      final message = eg.streamMessage(id: 1, content: '<p>foo</p>');
-      await addMessages([message]);
-      check(store.messages).deepEquals({1: message});
-      final newMessage = eg.streamMessage(id: 1, content: '<p>bar</p>');
-      final messages = [newMessage];
-      store.reconcileMessages(messages);
-      check(messages).single.identicalTo(message);
-      check(store.messages).deepEquals({1: message});
+    group('fetched message with ID already in store.messages', () {
+      /// Makes a copy of the single message in [MessageStore.messages]
+      /// by round-tripping through [Message.fromJson] and [Message.toJson].
+      ///
+      /// If that message's [StreamMessage.conversation.displayRecipient]
+      /// is null, callers must provide a non-null [displayRecipient]
+      /// to allow [StreamConversation.fromJson] to complete without throwing.
+      Message copyStoredMessage({String? displayRecipient}) {
+        final message = store.messages.values.single;
+
+        final json = message.toJson();
+        if (
+          message is StreamMessage
+          && message.conversation.displayRecipient == null
+        ) {
+          if (displayRecipient == null) throw ArgumentError();
+          json['display_recipient'] = displayRecipient;
+        }
+
+        return Message.fromJson(json);
+      }
+
+      /// Checks if the single message in [MessageStore.messages]
+      /// is identical to [message].
+      void checkStoredMessageIdenticalTo(Message message) {
+        check(store.messages)
+          .deepEquals({message.id: conditionIdentical(message)});
+      }
+
+      void checkClobber({Message? withMessageCopy}) {
+        final messageCopy = withMessageCopy ?? copyStoredMessage();
+        store.reconcileMessages([messageCopy]);
+        checkStoredMessageIdenticalTo(messageCopy);
+      }
+
+      void checkNoClobber() {
+        final messageBefore = store.messages.values.single;
+        store.reconcileMessages([copyStoredMessage()]);
+        checkStoredMessageIdenticalTo(messageBefore);
+      }
+
+      test('DM', () async {
+        await prepare();
+        final message = eg.dmMessage(id: 1, from: eg.otherUser, to: [eg.selfUser]);
+
+        store.reconcileMessages([message]);
+
+        // Not clobbering, because the first call didn't mark stale.
+        checkNoClobber();
+      });
+
+      group('channel message; chooses correctly whether to clobber the stored version', () {
+        // Exercise the ways we move the message in and out of the "maybe stale"
+        // state. These include reconcileMessage itself, so sometimes we test
+        // repeated calls to that with nothing else happening in between.
+
+        test('various conditions', () async {
+          final channel = eg.stream();
+          await prepare(stream: channel, isChannelSubscribed: true);
+          final message = eg.streamMessage(stream: channel);
+
+          store.reconcileMessages([message]);
+
+          // Not clobbering, because the first call didn't mark stale,
+          // because the message was in a subscribed channel.
+          checkNoClobber();
+
+          await store.removeSubscription(channel.streamId);
+          // Clobbering because the unsubscribe event marked the message stale.
+          checkClobber();
+          // (Check that reconcileMessage itself didn't unmark as stale.)
+          checkClobber();
+
+          await store.addSubscription(eg.subscription(channel));
+          // The channel became subscribed,
+          // but the message's data hasn't been refreshed, so clobber…
+          checkClobber();
+
+          // …Now it's been refreshed, by reconcileMessages, so don't clobber.
+          checkNoClobber();
+
+          final otherChannel = eg.stream();
+          await store.addStream(otherChannel);
+          check(store.subscriptions[otherChannel.streamId]).isNull();
+          await store.handleEvent(
+            eg.updateMessageEventMoveFrom(origMessages: [message],
+              newStreamId: otherChannel.streamId));
+          // Message was moved to an unsubscribed channel, so clobber.
+          checkClobber(
+            withMessageCopy: copyStoredMessage(displayRecipient: otherChannel.name));
+          // (Check that reconcileMessage itself didn't unmark as stale.)
+          checkClobber();
+
+          // Subscribe, to mark message as not-stale, setting up another check…
+          await store.addSubscription(eg.subscription(otherChannel));
+
+          await store.handleEvent(ChannelDeleteEvent(id: 1, channelIds: [otherChannel.streamId]));
+          // Message was in a channel that became unknown, so clobber.
+          checkClobber();
+        });
+
+        test('in unsubscribed channel on first call', () async {
+          await prepare(isChannelSubscribed: false);
+          final message = eg.streamMessage();
+
+          store.reconcileMessages([message]);
+
+          checkClobber();
+          checkClobber();
+        });
+
+        test('new-message event when in unsubscribed channel', () async {
+          await prepare(isChannelSubscribed: false);
+          final message = eg.streamMessage();
+
+          await store.handleEvent(eg.messageEvent(message));
+
+          checkClobber();
+          checkClobber();
+        });
+
+        test('new-message event when in a subscribed channel', () async {
+          await prepare(isChannelSubscribed: true);
+          final message = eg.streamMessage();
+
+          await store.handleEvent(eg.messageEvent(message));
+
+          checkNoClobber();
+          checkNoClobber();
+        });
+      });
     });
 
     test('matchContent and matchTopic are removed', () async {
@@ -862,6 +1070,398 @@ void main() {
       check(store.getEditMessageErrorStatus(message.id)).isNull();
       checkNotNotified();
     }));
+
+    test('request succeeds, in unsubscribed channel', () => awaitFakeAsync((async) async {
+      final channel = eg.stream();
+      message = eg.streamMessage(stream: channel, sender: eg.selfUser);
+      await prepare(
+        narrow: ChannelNarrow(channel.streamId),
+        stream: channel,
+        isChannelSubscribed: false,
+      );
+      await prepareMessages([message]);
+      check(connection.takeRequests()).length.equals(1); // message-list fetchInitial
+
+      connection.prepare(
+        json: UpdateMessageResult().toJson(), delay: Duration(seconds: 1));
+      unawaited(store.editMessage(messageId: message.id,
+        originalRawContent: 'old content', newContent: 'new content'));
+      checkRequest(message.id, prevContent: 'old content', content: 'new content');
+      checkNotifiedOnce();
+
+      async.elapse(Duration(seconds: 1));
+      // Outbox status cleared already (we don't expect an edit-message event).
+      check(store.getEditMessageErrorStatus(message.id)).isNull();
+      checkNotifiedOnce();
+    }));
+  });
+
+  group('selfCanDeleteMessage', () {
+    /// Call the method, with setup from [params].
+    Future<bool> evaluate(CanDeleteMessageParams params) async {
+      final selfUser = eg.user(role: params.selfUserRole);
+      final botUserOwnedBySelf = eg.user(isBot: true, botOwnerId: selfUser.userId);
+      final botUserNotOwnedBySelf = eg.user(isBot: true, botOwnerId: eg.otherUser.userId);
+
+      final groupWithSelf = eg.userGroup(members: [selfUser.userId]);
+      final groupWithoutSelf = eg.userGroup(members: [eg.otherUser.userId]);
+      final groupSettingWithSelf = GroupSettingValueNamed(groupWithSelf.id);
+      final groupSettingWithoutSelf = GroupSettingValueNamed(groupWithoutSelf.id);
+
+      final GroupSettingValue? realmCanDeleteAnyMessageGroup;
+      final GroupSettingValue? realmCanDeleteOwnMessageGroup;
+      final RealmDeleteOwnMessagePolicy? realmDeleteOwnMessagePolicy;
+
+      if (params.inRealmCanDeleteAnyMessageGroup != null) {
+        realmCanDeleteAnyMessageGroup = params.inRealmCanDeleteAnyMessageGroup!
+          ? groupSettingWithSelf : groupSettingWithoutSelf;
+      } else {
+        realmCanDeleteAnyMessageGroup = null;
+      }
+
+      if (params.inRealmCanDeleteOwnMessageGroup != null) {
+        assert(params.inRealmCanDeleteAnyMessageGroup != null); // TODO(server-10)
+        assert(params.realmDeleteOwnMessagePolicy == null);
+        realmCanDeleteOwnMessageGroup = params.inRealmCanDeleteOwnMessageGroup!
+          ? groupSettingWithSelf : groupSettingWithoutSelf;
+      } else {
+        realmCanDeleteOwnMessageGroup = null;
+      }
+
+      if (params.realmDeleteOwnMessagePolicy != null) {
+        assert(params.inRealmCanDeleteOwnMessageGroup == null);
+        realmDeleteOwnMessagePolicy = params.realmDeleteOwnMessagePolicy!;
+      } else {
+        realmDeleteOwnMessagePolicy = null;
+      }
+
+      final sender = switch (params.senderConfig) {
+        CanDeleteMessageSenderConfig.unknown => eg.user(),
+        CanDeleteMessageSenderConfig.self => selfUser,
+        CanDeleteMessageSenderConfig.otherHuman => eg.otherUser,
+        CanDeleteMessageSenderConfig.botOwnedBySelf => botUserOwnedBySelf,
+        CanDeleteMessageSenderConfig.botNotOwnedBySelf => botUserNotOwnedBySelf,
+      };
+
+      final channel = eg.stream();
+
+      final now = testBinding.utcNow();
+      final timestamp = (now.millisecondsSinceEpoch ~/ 1000) - 60;
+      final Message message;
+      if (params.isChannelArchived != null) {
+        // testing with a channel message
+        message = eg.streamMessage(sender: sender, stream: channel, timestamp: timestamp);
+        channel.isArchived = params.isChannelArchived!;
+        if (
+          params.inChannelCanDeleteAnyMessageGroup != null
+          && params.inChannelCanDeleteOwnMessageGroup != null
+        ) {
+          channel.canDeleteAnyMessageGroup = params.inChannelCanDeleteAnyMessageGroup!
+            ? groupSettingWithSelf : groupSettingWithoutSelf;
+          channel.canDeleteOwnMessageGroup = params.inChannelCanDeleteOwnMessageGroup!
+            ? groupSettingWithSelf : groupSettingWithoutSelf;
+        } else {
+          assert(params.inChannelCanDeleteAnyMessageGroup == null);
+          assert(params.inChannelCanDeleteOwnMessageGroup == null);
+          channel.canDeleteAnyMessageGroup = null;
+          channel.canDeleteOwnMessageGroup = null;
+        }
+      } else {
+        // testing with a DM message
+        final to = sender == selfUser ? <User>[] : [selfUser];
+        message = eg.dmMessage(from: sender, to: to, timestamp: timestamp);
+      }
+
+      final realmMessageContentDeleteLimitSeconds = switch (params.timeLimitConfig) {
+        CanDeleteMessageTimeLimitConfig.notLimited => null,
+        CanDeleteMessageTimeLimitConfig.insideLimit => 24 * 60 * 60,
+        CanDeleteMessageTimeLimitConfig.outsideLimit => 1,
+      };
+
+      final store = eg.store(
+        selfUser: selfUser,
+        initialSnapshot: eg.initialSnapshot(
+          realmUsers: [selfUser, eg.otherUser, botUserOwnedBySelf, botUserNotOwnedBySelf],
+          streams: [channel],
+          realmUserGroups: [groupWithSelf, groupWithoutSelf],
+          realmCanDeleteAnyMessageGroup: realmCanDeleteAnyMessageGroup,
+          realmCanDeleteOwnMessageGroup: realmCanDeleteOwnMessageGroup,
+          realmMessageContentDeleteLimitSeconds: realmMessageContentDeleteLimitSeconds,
+          realmDeleteOwnMessagePolicy: realmDeleteOwnMessagePolicy));
+
+      await store.addMessage(message);
+
+      return store.selfCanDeleteMessage(message.id, atDate: now);
+    }
+
+    void doTest(bool expected, CanDeleteMessageParams params) {
+      test('params: ${params.describe()}', () async {
+        check(await evaluate(params)).equals(expected);
+      });
+    }
+
+    group('channel message', () {
+      doTest(true, CanDeleteMessageParams.permissiveForChannelMessageExcept());
+      doTest(false, CanDeleteMessageParams.restrictiveForChannelMessageExcept());
+
+      group('denial conditions', () {
+        doTest(false, CanDeleteMessageParams.permissiveForChannelMessageExcept(
+          isChannelArchived: true));
+
+        doTest(false, CanDeleteMessageParams.permissiveForChannelMessageExcept(
+          inRealmCanDeleteAnyMessageGroup: false,
+          inChannelCanDeleteAnyMessageGroup: false,
+          senderConfig: CanDeleteMessageSenderConfig.unknown));
+
+        doTest(false, CanDeleteMessageParams.permissiveForChannelMessageExcept(
+          inRealmCanDeleteAnyMessageGroup: false,
+          inChannelCanDeleteAnyMessageGroup: false,
+          senderConfig: CanDeleteMessageSenderConfig.otherHuman));
+
+        doTest(false, CanDeleteMessageParams.permissiveForChannelMessageExcept(
+          inRealmCanDeleteAnyMessageGroup: false,
+          inChannelCanDeleteAnyMessageGroup: false,
+          senderConfig: CanDeleteMessageSenderConfig.botNotOwnedBySelf));
+
+        doTest(false, CanDeleteMessageParams.permissiveForChannelMessageExcept(
+          inRealmCanDeleteAnyMessageGroup: false,
+          inChannelCanDeleteAnyMessageGroup: false,
+          inRealmCanDeleteOwnMessageGroup: false,
+          inChannelCanDeleteOwnMessageGroup: false));
+
+        doTest(false, CanDeleteMessageParams.permissiveForChannelMessageExcept(
+          inRealmCanDeleteAnyMessageGroup: false,
+          inChannelCanDeleteAnyMessageGroup: false,
+          inRealmCanDeleteOwnMessageGroup: false,
+          timeLimitConfig: CanDeleteMessageTimeLimitConfig.outsideLimit));
+
+        doTest(false, CanDeleteMessageParams.permissiveForChannelMessageExcept(
+          inRealmCanDeleteAnyMessageGroup: false,
+          inChannelCanDeleteAnyMessageGroup: false,
+          timeLimitConfig: CanDeleteMessageTimeLimitConfig.outsideLimit));
+      });
+
+      group('approval conditions', () {
+        doTest(true, CanDeleteMessageParams.restrictiveForChannelMessageExcept(
+          isChannelArchived: false,
+          inRealmCanDeleteAnyMessageGroup: true));
+
+        doTest(true, CanDeleteMessageParams.restrictiveForChannelMessageExcept(
+          isChannelArchived: false,
+          inChannelCanDeleteAnyMessageGroup: true));
+
+        doTest(true, CanDeleteMessageParams.restrictiveForChannelMessageExcept(
+          isChannelArchived: false,
+          senderConfig: CanDeleteMessageSenderConfig.self,
+          inRealmCanDeleteOwnMessageGroup: true,
+          timeLimitConfig: CanDeleteMessageTimeLimitConfig.notLimited));
+
+        doTest(true, CanDeleteMessageParams.restrictiveForChannelMessageExcept(
+          isChannelArchived: false,
+          senderConfig: CanDeleteMessageSenderConfig.botOwnedBySelf,
+          inChannelCanDeleteOwnMessageGroup: true,
+          timeLimitConfig: CanDeleteMessageTimeLimitConfig.insideLimit));
+      });
+    });
+
+    group('dm message', () {
+      doTest(true, CanDeleteMessageParams.permissiveForDmMessageExcept());
+      doTest(false, CanDeleteMessageParams.restrictiveForDmMessageExcept());
+
+      group('denial conditions', () {
+        doTest(false, CanDeleteMessageParams.permissiveForDmMessageExcept(
+          inRealmCanDeleteAnyMessageGroup: false,
+          senderConfig: CanDeleteMessageSenderConfig.unknown));
+
+        doTest(false, CanDeleteMessageParams.permissiveForDmMessageExcept(
+          inRealmCanDeleteAnyMessageGroup: false,
+          senderConfig: CanDeleteMessageSenderConfig.otherHuman));
+
+        doTest(false, CanDeleteMessageParams.permissiveForDmMessageExcept(
+          inRealmCanDeleteAnyMessageGroup: false,
+          senderConfig: CanDeleteMessageSenderConfig.botNotOwnedBySelf));
+
+        doTest(false, CanDeleteMessageParams.permissiveForDmMessageExcept(
+          inRealmCanDeleteAnyMessageGroup: false,
+          inRealmCanDeleteOwnMessageGroup: false));
+
+        doTest(false, CanDeleteMessageParams.permissiveForDmMessageExcept(
+          inRealmCanDeleteAnyMessageGroup: false,
+          timeLimitConfig: CanDeleteMessageTimeLimitConfig.outsideLimit));
+      });
+
+      group('approval conditions', () {
+        doTest(true, CanDeleteMessageParams.restrictiveForDmMessageExcept(
+          inRealmCanDeleteAnyMessageGroup: true));
+
+        doTest(true, CanDeleteMessageParams.restrictiveForDmMessageExcept(
+          senderConfig: CanDeleteMessageSenderConfig.self,
+          inRealmCanDeleteOwnMessageGroup: true,
+          timeLimitConfig: CanDeleteMessageTimeLimitConfig.notLimited));
+
+        doTest(true, CanDeleteMessageParams.restrictiveForDmMessageExcept(
+          senderConfig: CanDeleteMessageSenderConfig.self,
+          inRealmCanDeleteOwnMessageGroup: true,
+          timeLimitConfig: CanDeleteMessageTimeLimitConfig.insideLimit));
+      });
+    });
+
+    group('legacy behavior', () {
+      group('pre-407', () {
+        // The channel-level group permissions don't exist,
+        // so we act as though they were present with role:nobody,
+        // and we don't throw.
+
+        test('denial is not forced just because one of the permissions is absent (the any-message one)', () async {
+          check(await evaluate(
+            CanDeleteMessageParams.pre407(
+              senderConfig: CanDeleteMessageSenderConfig.self,
+              timeLimitConfig: CanDeleteMessageTimeLimitConfig.notLimited,
+              inRealmCanDeleteAnyMessageGroup: false,
+              inRealmCanDeleteOwnMessageGroup: true,
+              isChannelArchived: false,
+          )))..equals(await evaluate(
+              CanDeleteMessageParams.modern(
+                senderConfig: CanDeleteMessageSenderConfig.self,
+                timeLimitConfig: CanDeleteMessageTimeLimitConfig.notLimited,
+                inRealmCanDeleteAnyMessageGroup: false,
+                inRealmCanDeleteOwnMessageGroup: true,
+                isChannelArchived: false,
+                inChannelCanDeleteAnyMessageGroup: false,
+                inChannelCanDeleteOwnMessageGroup: false)))
+            ..isTrue();
+        });
+
+        test('exercise both existence checks', () async {
+          check(await evaluate(
+            CanDeleteMessageParams.pre407(
+              senderConfig: CanDeleteMessageSenderConfig.self,
+              timeLimitConfig: CanDeleteMessageTimeLimitConfig.notLimited,
+              inRealmCanDeleteAnyMessageGroup: false,
+              inRealmCanDeleteOwnMessageGroup: false,
+              isChannelArchived: false,
+          )))..equals(await evaluate(
+              CanDeleteMessageParams.modern(
+                senderConfig: CanDeleteMessageSenderConfig.self,
+                timeLimitConfig: CanDeleteMessageTimeLimitConfig.notLimited,
+                inRealmCanDeleteAnyMessageGroup: false,
+                inRealmCanDeleteOwnMessageGroup: false,
+                isChannelArchived: false,
+                inChannelCanDeleteAnyMessageGroup: false,
+                inChannelCanDeleteOwnMessageGroup: false)))
+            ..isFalse();
+        });
+      });
+
+      group('pre-291', () {
+        // The realm-level can-delete-own-message group permission
+        // doesn't exist, so we follow realmDeleteOwnMessagePolicy instead,
+        // and we don't error.
+
+        test('allowed (permissive policy, low role)', () async {
+          check(await evaluate(
+            CanDeleteMessageParams.pre291(
+              senderConfig: CanDeleteMessageSenderConfig.self,
+              timeLimitConfig: CanDeleteMessageTimeLimitConfig.notLimited,
+              inRealmCanDeleteAnyMessageGroup: false,
+              isChannelArchived: false,
+              realmDeleteOwnMessagePolicy: RealmDeleteOwnMessagePolicy.everyone,
+              selfUserRole: UserRole.member,
+          )))
+            ..equals(await evaluate(
+             CanDeleteMessageParams.pre407(
+               senderConfig: CanDeleteMessageSenderConfig.self,
+               timeLimitConfig: CanDeleteMessageTimeLimitConfig.notLimited,
+               inRealmCanDeleteAnyMessageGroup: false,
+               inRealmCanDeleteOwnMessageGroup: true,
+               isChannelArchived: false)))
+            ..isTrue();
+        });
+
+        test('allowed (strict policy, high role)', () async {
+          check(await evaluate(
+            CanDeleteMessageParams.pre291(
+              senderConfig: CanDeleteMessageSenderConfig.self,
+              timeLimitConfig: CanDeleteMessageTimeLimitConfig.notLimited,
+              inRealmCanDeleteAnyMessageGroup: false,
+              isChannelArchived: false,
+              realmDeleteOwnMessagePolicy: RealmDeleteOwnMessagePolicy.admins,
+              selfUserRole: UserRole.administrator,
+          )))
+            ..equals(await evaluate(
+             CanDeleteMessageParams.pre407(
+               senderConfig: CanDeleteMessageSenderConfig.self,
+               timeLimitConfig: CanDeleteMessageTimeLimitConfig.notLimited,
+               inRealmCanDeleteAnyMessageGroup: false,
+               inRealmCanDeleteOwnMessageGroup: true,
+               isChannelArchived: false)))
+            ..isTrue();
+        });
+
+        test('denied', () async {
+          check(await evaluate(
+            CanDeleteMessageParams.pre291(
+              senderConfig: CanDeleteMessageSenderConfig.self,
+              timeLimitConfig: CanDeleteMessageTimeLimitConfig.notLimited,
+              inRealmCanDeleteAnyMessageGroup: false,
+              isChannelArchived: false,
+              realmDeleteOwnMessagePolicy: RealmDeleteOwnMessagePolicy.admins,
+              selfUserRole: UserRole.moderator,
+          )))..equals(await evaluate(
+              CanDeleteMessageParams.pre407(
+                senderConfig: CanDeleteMessageSenderConfig.self,
+                timeLimitConfig: CanDeleteMessageTimeLimitConfig.notLimited,
+                inRealmCanDeleteAnyMessageGroup: false,
+                inRealmCanDeleteOwnMessageGroup: false,
+                isChannelArchived: false)))
+            ..isFalse();
+        });
+      });
+
+      group('pre-281', () {
+        // The realm-level can-delete-any-message permission doesn't exist,
+        // so we act as though that's present with role:administrators,
+        // and we don't throw.
+
+        test('self-user is not admin', () async {
+          check(await evaluate(
+            CanDeleteMessageParams.pre281(
+              senderConfig: CanDeleteMessageSenderConfig.otherHuman,
+              timeLimitConfig: CanDeleteMessageTimeLimitConfig.notLimited,
+              isChannelArchived: false,
+              realmDeleteOwnMessagePolicy: RealmDeleteOwnMessagePolicy.everyone,
+              selfUserRole: UserRole.member,
+          )))..equals(await evaluate(
+              CanDeleteMessageParams.pre291(
+                senderConfig: CanDeleteMessageSenderConfig.otherHuman,
+                timeLimitConfig: CanDeleteMessageTimeLimitConfig.notLimited,
+                inRealmCanDeleteAnyMessageGroup: false,
+                isChannelArchived: false,
+                realmDeleteOwnMessagePolicy: RealmDeleteOwnMessagePolicy.everyone,
+                selfUserRole: UserRole.member)))
+            ..isFalse();
+        });
+
+        test('self-user is admin', () async {
+          check(await evaluate(
+            CanDeleteMessageParams.pre281(
+              senderConfig: CanDeleteMessageSenderConfig.otherHuman,
+              timeLimitConfig: CanDeleteMessageTimeLimitConfig.notLimited,
+              isChannelArchived: false,
+              realmDeleteOwnMessagePolicy: RealmDeleteOwnMessagePolicy.everyone,
+              selfUserRole: UserRole.administrator,
+          )))..equals(await evaluate(
+              CanDeleteMessageParams.pre291(
+                senderConfig: CanDeleteMessageSenderConfig.otherHuman,
+                timeLimitConfig: CanDeleteMessageTimeLimitConfig.notLimited,
+                inRealmCanDeleteAnyMessageGroup: true,
+                isChannelArchived: false,
+                realmDeleteOwnMessagePolicy: RealmDeleteOwnMessagePolicy.everyone,
+                selfUserRole: UserRole.administrator)))
+            ..isTrue();
+        });
+      });
+    });
   });
 
   group('handleMessageEvent', () {
@@ -941,7 +1541,7 @@ void main() {
       final originalMessage = eg.streamMessage(
         content: "<p>Hello, world</p>");
       final updateEvent = eg.updateMessageEditEvent(originalMessage,
-        flags: [MessageFlag.starred],
+        flags: [MessageFlag.hasAlertWord],
         renderedContent: "<p>Hello, edited</p>",
         editTimestamp: 99999,
         isMeMessage: true,
@@ -1138,6 +1738,20 @@ void main() {
       checkNotifiedOnce();
       check(store).messages.values.single.id.equals(message1.id);
     });
+
+    test('delete a starred message', () async {
+      final message = eg.streamMessage(flags: [MessageFlag.starred]);
+      await prepare(starredMessages: [message.id]);
+
+      // The actual message hasn't been fetched by a message list;
+      // we want to test [MessageStore.starredMessages] in isolation.
+      await prepareMessages([]);
+
+      check(store).starredMessages.single.equals(message.id);
+      await store.handleEvent(eg.deleteMessageEvent([message]));
+      checkNotified(count: 0, storeCount: 1);
+      check(store).starredMessages.isEmpty();
+    });
   });
 
   group('handleUpdateMessageFlagsEvent', () {
@@ -1199,12 +1813,49 @@ void main() {
 
       test('other flags not clobbered', () async {
         final message = eg.streamMessage(flags: [MessageFlag.starred]);
-        await prepare();
+        await prepare(starredMessages: [message.id]);
         await prepareMessages([message]);
         await store.handleEvent(mkAddEvent(MessageFlag.read, [message.id]));
         checkNotifiedOnce();
         check(store).messages.values
           .single.flags.deepEquals([MessageFlag.starred, MessageFlag.read]);
+      });
+
+      test('add to starredMessages', () async {
+        final message1 = eg.streamMessage(flags: []);
+        final message2 = eg.streamMessage(flags: []);
+        await prepare(starredMessages: []);
+        await prepareMessages([message2]);
+        check(store).starredMessages.isEmpty();
+        await store.handleEvent(
+          mkAddEvent(MessageFlag.starred, [message1.id, message2.id]));
+        checkNotified(count: 1, storeCount: 1);
+        check(store).starredMessages.deepEquals([message1.id, message2.id]);
+      });
+
+      test('prevent duplicate flags, when all: false', () async {
+        // Regression test for https://github.com/zulip/zulip-flutter/issues/1986
+        await prepare();
+        final message = eg.streamMessage(flags: [MessageFlag.read]);
+        await prepareMessages([message]);
+
+        await store.handleEvent(mkAddEvent(MessageFlag.read, [message.id]));
+        checkNotifiedOnce();
+        check(store).messages[message.id].flags.deepEquals([MessageFlag.read]);
+      });
+
+      test('prevent duplicate flags, when all: true', () async {
+        // Regression test for https://github.com/zulip/zulip-flutter/issues/1986
+        await prepare();
+        final message1 = eg.streamMessage(flags: [MessageFlag.read]);
+        final message2 = eg.streamMessage(flags: []);
+        await prepareMessages([message1, message2]);
+
+        await store.handleEvent(mkAddEvent(MessageFlag.read, [], all: true));
+        checkNotifiedOnce();
+        check(store).messages
+          ..[message1.id].flags.deepEquals([MessageFlag.read])
+          ..[message2.id].flags.deepEquals([MessageFlag.read]);
       });
     });
 
@@ -1234,12 +1885,24 @@ void main() {
 
       test('other flags not affected', () async {
         final message = eg.streamMessage(flags: [MessageFlag.starred, MessageFlag.read]);
-        await prepare();
+        await prepare(starredMessages: [message.id]);
         await prepareMessages([message]);
         await store.handleEvent(mkRemoveEvent(MessageFlag.read, [message]));
         checkNotifiedOnce();
         check(store).messages.values
           .single.flags.deepEquals([MessageFlag.starred]);
+      });
+
+      test('remove from starredMessages', () async {
+        final message1 = eg.streamMessage(flags: [MessageFlag.starred]);
+        final message2 = eg.streamMessage(flags: [MessageFlag.starred]);
+        await prepare(starredMessages: [message1.id, message2.id]);
+        await prepareMessages([message2]);
+        check(store).starredMessages.deepEquals([message1.id, message2.id]);
+        await store.handleEvent(
+          mkRemoveEvent(MessageFlag.starred, [message1, message2]));
+        checkNotified(count: 1, storeCount: 1);
+        check(store).starredMessages.isEmpty();
       });
     });
   });
@@ -1667,4 +2330,193 @@ void main() {
       });
     });
   });
+}
+
+/// Params for testing the logic for
+/// whether the self-user has permission to delete a message.
+class CanDeleteMessageParams {
+  final CanDeleteMessageSenderConfig senderConfig;
+  final CanDeleteMessageTimeLimitConfig timeLimitConfig;
+  final bool? inRealmCanDeleteAnyMessageGroup;
+  final bool? inRealmCanDeleteOwnMessageGroup;
+  final bool? isChannelArchived;
+  final bool? inChannelCanDeleteAnyMessageGroup;
+  final bool? inChannelCanDeleteOwnMessageGroup;
+  final RealmDeleteOwnMessagePolicy? realmDeleteOwnMessagePolicy;
+  final UserRole? selfUserRole;
+
+  CanDeleteMessageParams._({
+    required this.senderConfig,
+    required this.timeLimitConfig,
+    required this.inRealmCanDeleteAnyMessageGroup,
+    required this.inRealmCanDeleteOwnMessageGroup,
+    required this.isChannelArchived,
+    required this.inChannelCanDeleteAnyMessageGroup,
+    required this.inChannelCanDeleteOwnMessageGroup,
+    required this.realmDeleteOwnMessagePolicy,
+    required this.selfUserRole,
+  });
+
+  CanDeleteMessageParams.modern({
+    required this.senderConfig,
+    required this.timeLimitConfig,
+    required this.inRealmCanDeleteAnyMessageGroup,
+    required this.inRealmCanDeleteOwnMessageGroup,
+    required this.isChannelArchived,
+    required this.inChannelCanDeleteAnyMessageGroup,
+    required this.inChannelCanDeleteOwnMessageGroup,
+  }) :
+    realmDeleteOwnMessagePolicy = null,
+    selfUserRole = null;
+
+  factory CanDeleteMessageParams.restrictiveForChannelMessageExcept({
+    CanDeleteMessageSenderConfig? senderConfig,
+    CanDeleteMessageTimeLimitConfig? timeLimitConfig,
+    bool? inRealmCanDeleteAnyMessageGroup,
+    bool? inRealmCanDeleteOwnMessageGroup,
+    bool? isChannelArchived,
+    bool? inChannelCanDeleteAnyMessageGroup,
+    bool? inChannelCanDeleteOwnMessageGroup,
+  }) => CanDeleteMessageParams.modern(
+    senderConfig: senderConfig ?? CanDeleteMessageSenderConfig.unknown,
+    timeLimitConfig: timeLimitConfig ?? CanDeleteMessageTimeLimitConfig.outsideLimit,
+    inRealmCanDeleteAnyMessageGroup: inRealmCanDeleteAnyMessageGroup ?? false,
+    inRealmCanDeleteOwnMessageGroup: inRealmCanDeleteOwnMessageGroup ?? false,
+    isChannelArchived: isChannelArchived ?? true,
+    inChannelCanDeleteAnyMessageGroup: inChannelCanDeleteAnyMessageGroup ?? false,
+    inChannelCanDeleteOwnMessageGroup: inChannelCanDeleteOwnMessageGroup ?? false,
+  );
+
+  factory CanDeleteMessageParams.permissiveForChannelMessageExcept({
+    CanDeleteMessageSenderConfig? senderConfig,
+    CanDeleteMessageTimeLimitConfig? timeLimitConfig,
+    bool? inRealmCanDeleteAnyMessageGroup,
+    bool? inRealmCanDeleteOwnMessageGroup,
+    bool? isChannelArchived,
+    bool? inChannelCanDeleteAnyMessageGroup,
+    bool? inChannelCanDeleteOwnMessageGroup,
+  }) => CanDeleteMessageParams.modern(
+    senderConfig: senderConfig ?? CanDeleteMessageSenderConfig.self,
+    timeLimitConfig: timeLimitConfig ?? CanDeleteMessageTimeLimitConfig.notLimited,
+    inRealmCanDeleteAnyMessageGroup: inRealmCanDeleteAnyMessageGroup ?? true,
+    inRealmCanDeleteOwnMessageGroup: inRealmCanDeleteOwnMessageGroup ?? true,
+    isChannelArchived: isChannelArchived ?? false,
+    inChannelCanDeleteAnyMessageGroup: inChannelCanDeleteAnyMessageGroup ?? true,
+    inChannelCanDeleteOwnMessageGroup: inChannelCanDeleteOwnMessageGroup ?? true,
+  );
+
+  factory CanDeleteMessageParams.restrictiveForDmMessageExcept({
+    CanDeleteMessageSenderConfig? senderConfig,
+    CanDeleteMessageTimeLimitConfig? timeLimitConfig,
+    bool? inRealmCanDeleteAnyMessageGroup,
+    bool? inRealmCanDeleteOwnMessageGroup,
+  }) => CanDeleteMessageParams.modern(
+    senderConfig: senderConfig ?? CanDeleteMessageSenderConfig.unknown,
+    timeLimitConfig: timeLimitConfig ?? CanDeleteMessageTimeLimitConfig.outsideLimit,
+    inRealmCanDeleteAnyMessageGroup: inRealmCanDeleteAnyMessageGroup ?? false,
+    inRealmCanDeleteOwnMessageGroup: inRealmCanDeleteOwnMessageGroup ?? false,
+    isChannelArchived: null,
+    inChannelCanDeleteAnyMessageGroup: null,
+    inChannelCanDeleteOwnMessageGroup: null,
+  );
+
+  factory CanDeleteMessageParams.permissiveForDmMessageExcept({
+    CanDeleteMessageSenderConfig? senderConfig,
+    CanDeleteMessageTimeLimitConfig? timeLimitConfig,
+    bool? inRealmCanDeleteAnyMessageGroup,
+    bool? inRealmCanDeleteOwnMessageGroup,
+  }) => CanDeleteMessageParams.modern(
+    senderConfig: senderConfig ?? CanDeleteMessageSenderConfig.self,
+    timeLimitConfig: timeLimitConfig ?? CanDeleteMessageTimeLimitConfig.notLimited,
+    inRealmCanDeleteAnyMessageGroup: inRealmCanDeleteAnyMessageGroup ?? true,
+    inRealmCanDeleteOwnMessageGroup: inRealmCanDeleteOwnMessageGroup ?? true,
+    isChannelArchived: null,
+    inChannelCanDeleteAnyMessageGroup: null,
+    inChannelCanDeleteOwnMessageGroup: null,
+  );
+
+  // TODO(server-11) delete
+  factory CanDeleteMessageParams.pre407({
+    required CanDeleteMessageSenderConfig senderConfig,
+    required CanDeleteMessageTimeLimitConfig timeLimitConfig,
+    required bool inRealmCanDeleteAnyMessageGroup,
+    required bool inRealmCanDeleteOwnMessageGroup,
+    required bool? isChannelArchived,
+  }) => CanDeleteMessageParams._(
+    senderConfig: senderConfig,
+    timeLimitConfig: timeLimitConfig,
+    inRealmCanDeleteAnyMessageGroup: inRealmCanDeleteAnyMessageGroup,
+    inRealmCanDeleteOwnMessageGroup: inRealmCanDeleteOwnMessageGroup,
+    isChannelArchived: isChannelArchived,
+    inChannelCanDeleteAnyMessageGroup: null,
+    inChannelCanDeleteOwnMessageGroup: null,
+    realmDeleteOwnMessagePolicy: null,
+    selfUserRole: null,
+  );
+
+  // TODO(server-10) delete
+  factory CanDeleteMessageParams.pre291({
+    required CanDeleteMessageSenderConfig senderConfig,
+    required CanDeleteMessageTimeLimitConfig timeLimitConfig,
+    required bool inRealmCanDeleteAnyMessageGroup,
+    required bool? isChannelArchived,
+    required RealmDeleteOwnMessagePolicy realmDeleteOwnMessagePolicy,
+    required UserRole selfUserRole,
+  }) => CanDeleteMessageParams._(
+    senderConfig: senderConfig,
+    timeLimitConfig: timeLimitConfig,
+    inRealmCanDeleteAnyMessageGroup: inRealmCanDeleteAnyMessageGroup,
+    inRealmCanDeleteOwnMessageGroup: null,
+    isChannelArchived: isChannelArchived,
+    inChannelCanDeleteAnyMessageGroup: null,
+    inChannelCanDeleteOwnMessageGroup: null,
+    realmDeleteOwnMessagePolicy: realmDeleteOwnMessagePolicy,
+    selfUserRole: selfUserRole,
+  );
+
+  // TODO(server-10) delete
+  factory CanDeleteMessageParams.pre281({
+    required CanDeleteMessageSenderConfig senderConfig,
+    required CanDeleteMessageTimeLimitConfig timeLimitConfig,
+    required bool? isChannelArchived,
+    required RealmDeleteOwnMessagePolicy realmDeleteOwnMessagePolicy,
+    required UserRole selfUserRole,
+  }) => CanDeleteMessageParams._(
+    senderConfig: senderConfig,
+    timeLimitConfig: timeLimitConfig,
+    inRealmCanDeleteAnyMessageGroup: null,
+    inRealmCanDeleteOwnMessageGroup: null,
+    isChannelArchived: isChannelArchived,
+    inChannelCanDeleteAnyMessageGroup: null,
+    inChannelCanDeleteOwnMessageGroup: null,
+    realmDeleteOwnMessagePolicy: realmDeleteOwnMessagePolicy,
+    selfUserRole: selfUserRole,
+  );
+
+  String describe() {
+    return [
+      'sender: ${senderConfig.name}',
+      'time limit: ${timeLimitConfig.name}',
+      'in realmCanDeleteAnyMessageGroup?: ${inRealmCanDeleteAnyMessageGroup ?? 'N/A'}',
+      'in realmCanDeleteOwnMessageGroup?: ${inRealmCanDeleteOwnMessageGroup ?? 'N/A'}',
+      'channel is archived?: ${isChannelArchived ?? 'N/A'}',
+      'in channel.canDeleteAnyMessageGroup?: ${inChannelCanDeleteAnyMessageGroup ?? 'N/A'}',
+      'in channel.canDeleteOwnMessageGroup?: ${inChannelCanDeleteOwnMessageGroup ?? 'N/A'}',
+      'realmDeleteOwnMessagePolicy: ${realmDeleteOwnMessagePolicy ?? 'N/A'}',
+    ].join(', ');
+  }
+}
+
+enum CanDeleteMessageSenderConfig {
+  unknown,
+  self,
+  otherHuman,
+  botOwnedBySelf,
+  botNotOwnedBySelf,
+}
+
+enum CanDeleteMessageTimeLimitConfig {
+  notLimited,
+  insideLimit,
+  outsideLimit,
 }

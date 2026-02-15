@@ -7,16 +7,25 @@ import 'package:intl/intl.dart' as intl;
 
 import 'zulip_localizations_ar.dart';
 import 'zulip_localizations_de.dart';
+import 'zulip_localizations_el.dart';
 import 'zulip_localizations_en.dart';
+import 'zulip_localizations_es.dart';
+import 'zulip_localizations_et.dart';
 import 'zulip_localizations_fr.dart';
+import 'zulip_localizations_he.dart';
+import 'zulip_localizations_hu.dart';
 import 'zulip_localizations_it.dart';
 import 'zulip_localizations_ja.dart';
+import 'zulip_localizations_kk.dart';
+import 'zulip_localizations_lv.dart';
 import 'zulip_localizations_nb.dart';
 import 'zulip_localizations_pl.dart';
+import 'zulip_localizations_pt.dart';
 import 'zulip_localizations_ru.dart';
 import 'zulip_localizations_sk.dart';
 import 'zulip_localizations_sl.dart';
 import 'zulip_localizations_uk.dart';
+import 'zulip_localizations_vi.dart';
 import 'zulip_localizations_zh.dart';
 
 // ignore_for_file: type=lint
@@ -108,16 +117,26 @@ abstract class ZulipLocalizations {
     Locale('en'),
     Locale('ar'),
     Locale('de'),
+    Locale('el'),
     Locale('en', 'GB'),
+    Locale('es'),
+    Locale('et'),
     Locale('fr'),
+    Locale('he'),
+    Locale('hu'),
     Locale('it'),
     Locale('ja'),
+    Locale('kk'),
+    Locale('lv'),
     Locale('nb'),
     Locale('pl'),
+    Locale('pt'),
+    Locale('pt', 'PT'),
     Locale('ru'),
     Locale('sk'),
     Locale('sl'),
     Locale('uk'),
+    Locale('vi'),
     Locale('zh'),
     Locale.fromSubtags(
       languageCode: 'zh',
@@ -191,11 +210,11 @@ abstract class ZulipLocalizations {
   /// **'Settings'**
   String get settingsPageTitle;
 
-  /// Label for main-menu button leading to the choose-account page.
+  /// Tooltip message for main-menu button leading to the choose-account page.
   ///
   /// In en, this message translates to:
   /// **'Switch account'**
-  String get switchAccountButton;
+  String get switchAccountButtonTooltip;
 
   /// Message that appears on the loading screen after waiting for some time.
   ///
@@ -238,6 +257,24 @@ abstract class ZulipLocalizations {
   /// In en, this message translates to:
   /// **'Add an account'**
   String get chooseAccountButtonAddAnAccount;
+
+  /// Title for a nav button that opens the 'All channels' page.
+  ///
+  /// In en, this message translates to:
+  /// **'All channels'**
+  String get navButtonAllChannels;
+
+  /// Title for the 'All channels' page.
+  ///
+  /// In en, this message translates to:
+  /// **'All channels'**
+  String get allChannelsPageTitle;
+
+  /// Centered text on the 'All channels' page saying that there is no content to show.
+  ///
+  /// In en, this message translates to:
+  /// **'There are no channels you can view in this organization.'**
+  String get allChannelsEmptyPlaceholderHeader;
 
   /// Label for button in profile screen to navigate to DMs with the shown user.
   ///
@@ -323,11 +360,11 @@ abstract class ZulipLocalizations {
   /// **'Unsubscribe from {channelName}?'**
   String unsubscribeConfirmationDialogTitle(String channelName);
 
-  /// Message for a confirmation dialog for unsubscribing from a channel when you might not have permission to resubscribe.
+  /// Message for a confirmation dialog for unsubscribing from a channel when you will not have permission to resubscribe.
   ///
   /// In en, this message translates to:
-  /// **'Once you leave this channel, you might not be able to rejoin.'**
-  String get unsubscribeConfirmationDialogMessageMaybeCannotResubscribe;
+  /// **'Once you leave this channel, you will not be able to rejoin.'**
+  String get unsubscribeConfirmationDialogMessageCannotResubscribe;
 
   /// Label for the 'Unsubscribe' button on a confirmation dialog for unsubscribing from a channel.
   ///
@@ -340,6 +377,30 @@ abstract class ZulipLocalizations {
   /// In en, this message translates to:
   /// **'Failed to unsubscribe'**
   String get unsubscribeFailedTitle;
+
+  /// Label in the channel action sheet for pinning the channel.
+  ///
+  /// In en, this message translates to:
+  /// **'Pin to top'**
+  String get actionSheetOptionPinChannel;
+
+  /// Label in the channel action sheet for unpinning the channel.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpin from top'**
+  String get actionSheetOptionUnpinChannel;
+
+  /// Error title when pinning a channel to the top fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to pin channel'**
+  String get errorPinChannelFailedTitle;
+
+  /// Error title when unpinning a channel from the top fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to unpin channel'**
+  String get errorUnpinChannelFailedTitle;
 
   /// Label for muting a topic on action sheet.
   ///
@@ -503,6 +564,36 @@ abstract class ZulipLocalizations {
   /// **'Edit message'**
   String get actionSheetOptionEditMessage;
 
+  /// Label for the 'Delete message' button in the message action sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete message'**
+  String get actionSheetOptionDeleteMessage;
+
+  /// Title for a confirmation dialog for deleting a message.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete message?'**
+  String get deleteMessageConfirmationDialogTitle;
+
+  /// Message for a confirmation dialog for deleting a message.
+  ///
+  /// In en, this message translates to:
+  /// **'Deleting a message permanently removes it for everyone.'**
+  String get deleteMessageConfirmationDialogMessage;
+
+  /// Label for the 'Delete' button on a confirmation dialog for deleting a message.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get deleteMessageConfirmationDialogConfirmButton;
+
+  /// Error title when deleting a message failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to delete message'**
+  String get errorDeleteMessageFailedTitle;
+
   /// Option to mark a specific topic as read in the action sheet.
   ///
   /// In en, this message translates to:
@@ -544,6 +635,12 @@ abstract class ZulipLocalizations {
   /// In en, this message translates to:
   /// **'Could not fetch message source.'**
   String get errorCouldNotFetchMessageSource;
+
+  /// Error title on failure in opening a file someone previously uploaded to Zulip
+  ///
+  /// In en, this message translates to:
+  /// **'Could not access uploaded file'**
+  String get errorCouldNotAccessUploadedFileTitle;
 
   /// Error message when copying the text of a message to the user's system clipboard failed.
   ///
@@ -751,17 +848,53 @@ abstract class ZulipLocalizations {
   /// **'Channel link copied'**
   String get successChannelLinkCopied;
 
-  /// Label text for error banner when sending a message to one or multiple deactivated users.
+  /// Label text for a banner replacing the compose box when you cannot send messages in the DM conversation because one or more members are deactivated.
   ///
   /// In en, this message translates to:
   /// **'You cannot send messages to deactivated users.'**
-  String get errorBannerDeactivatedDmLabel;
+  String get composeBoxBannerLabelDeactivatedDmRecipient;
 
-  /// Error-banner text replacing the compose box when you do not have permission to send a message to the channel.
+  /// Label text for a banner replacing the compose box when you cannot send messages in the DM conversation because one or more members are unknown.
+  ///
+  /// In en, this message translates to:
+  /// **'You cannot send messages to unknown users.'**
+  String get composeBoxBannerLabelUnknownDmRecipient;
+
+  /// Label text for a banner replacing the compose box when you cannot send messages in the channel for an unspecified reason.
+  ///
+  /// In en, this message translates to:
+  /// **'You cannot send messages here.'**
+  String get composeBoxBannerLabelCannotSendUnspecifiedReason;
+
+  /// Label text for a banner replacing the compose box when you do not have permission to send messages in the channel.
   ///
   /// In en, this message translates to:
   /// **'You do not have permission to post in this channel.'**
-  String get errorBannerCannotPostInChannelLabel;
+  String get composeBoxBannerLabelCannotSendInChannel;
+
+  /// Label text for a compose-box banner when you are viewing an unsubscribed channel.
+  ///
+  /// In en, this message translates to:
+  /// **'Replies to your messages will not appear automatically.'**
+  String get composeBoxBannerLabelUnsubscribed;
+
+  /// Label text for a compose-box banner when you are viewing an unsubscribed channel in which you do not have permission to send messages.
+  ///
+  /// In en, this message translates to:
+  /// **'New messages will not appear automatically.'**
+  String get composeBoxBannerLabelUnsubscribedWhenCannotSend;
+
+  /// Label text for the 'Refresh' button in the compose-box banner when you are viewing an unsubscribed channel.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh'**
+  String get composeBoxBannerButtonRefresh;
+
+  /// Label text for the 'Subscribe' button in the compose-box banner when you are viewing an unsubscribed channel.
+  ///
+  /// In en, this message translates to:
+  /// **'Subscribe'**
+  String get composeBoxBannerButtonSubscribe;
 
   /// Label text for the compose-box banner when you are editing a message.
   ///
@@ -904,7 +1037,7 @@ abstract class ZulipLocalizations {
   /// Hint text for content input when sending a message to yourself.
   ///
   /// In en, this message translates to:
-  /// **'Jot down something'**
+  /// **'Write yourself a note'**
   String get composeBoxSelfDmContentHint;
 
   /// Hint text for content input when sending a message to a channel.
@@ -984,6 +1117,96 @@ abstract class ZulipLocalizations {
   /// In en, this message translates to:
   /// **'There are no messages here.'**
   String get emptyMessageList;
+
+  /// Placeholder for the 'Combined feed' page when there are no messages.
+  ///
+  /// In en, this message translates to:
+  /// **'There are no messages in your combined feed.'**
+  String get emptyMessageListCombinedFeed;
+
+  /// Placeholder for a channel or topic page when there are no messages and you don’t have content access.
+  ///
+  /// In en, this message translates to:
+  /// **'You don’t have <z-link>content access</z-link> to this channel.'**
+  String get emptyMessageListChannelWithoutContentAccess;
+
+  /// Placeholder for a channel page when there are no messages and the channel does not exist or you don't have access to it.
+  ///
+  /// In en, this message translates to:
+  /// **'This channel doesn’t exist, or you are not allowed to view it.'**
+  String get emptyMessageListChannelUnavailable;
+
+  /// Placeholder for the self-DM page when there are no messages.
+  ///
+  /// In en, this message translates to:
+  /// **'You have not sent any direct messages to yourself yet!'**
+  String get emptyMessageListSelfDmHeader;
+
+  /// Extra detail in the placeholder for the self-DM page when there are no messages.
+  ///
+  /// In en, this message translates to:
+  /// **'Use this space for personal notes, or to test out Zulip features.'**
+  String get emptyMessageListSelfDmMessage;
+
+  /// Placeholder for a 1:1 DM page when there are no messages.
+  ///
+  /// In en, this message translates to:
+  /// **'You have no direct messages with {person} yet.'**
+  String emptyMessageListDm(String person);
+
+  /// Placeholder for a 1:1 DM page when there are no messages and the other user is deactivated.
+  ///
+  /// In en, this message translates to:
+  /// **'You have no direct messages with {person}.'**
+  String emptyMessageListDmDeactivatedUser(String person);
+
+  /// Placeholder for a 1:1 DM page when there are no messages and the other user's name is unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'You have no direct messages with this user.'**
+  String get emptyMessageListDmUnknownUser;
+
+  /// Placeholder for a group DM page when there are no messages.
+  ///
+  /// In en, this message translates to:
+  /// **'You have no direct messages with these users yet.'**
+  String get emptyMessageListGroupDm;
+
+  /// Placeholder for a group DM page when there are no messages and one or more participants is deactivated.
+  ///
+  /// In en, this message translates to:
+  /// **'You have no direct messages with these users.'**
+  String get emptyMessageListGroupDmDeactivatedUser;
+
+  /// Extra detail in the placeholder for some DM pages when there are no messages.
+  ///
+  /// In en, this message translates to:
+  /// **'Why not start the conversation?'**
+  String get emptyMessageListDmStartConversation;
+
+  /// Placeholder for the 'Mentions' page when there are no messages.
+  ///
+  /// In en, this message translates to:
+  /// **'This view will show messages where you are <z-link>mentioned</z-link>.'**
+  String get emptyMessageListMentionsHeader;
+
+  /// Extra detail in the placeholder for the 'Mentions' page when there are no messages.
+  ///
+  /// In en, this message translates to:
+  /// **'To call attention to a message, you can mention a user, a group, topic participants, or all subscribers to a channel. Type @ in the compose box, and choose who you’d like to mention from the list of suggestions.'**
+  String get emptyMessageListMentionsMessage;
+
+  /// Placeholder for the 'Starred' page when there are no messages.
+  ///
+  /// In en, this message translates to:
+  /// **'You have no starred messages.'**
+  String get emptyMessageListStarredHeader;
+
+  /// Extra detail in the placeholder for the 'Starred' page when there are no messages. The {button} placeholder will be the button's translated text.
+  ///
+  /// In en, this message translates to:
+  /// **'<z-link>Starring</z-link> is a good way to keep track of important messages, such as tasks you need to go back to, or useful references. To star a message, long-press it and tap “{button}.”'**
+  String emptyMessageListStarredMessage(String button);
 
   /// Placeholder for the 'Search' page when there are no messages.
   ///
@@ -1099,6 +1322,12 @@ abstract class ZulipLocalizations {
   /// **'OR'**
   String get loginMethodDivider;
 
+  /// Semantic label for divider between the username/password form and the third-party login options.
+  ///
+  /// In en, this message translates to:
+  /// **'Log-in alternatives'**
+  String get loginMethodDividerSemanticLabel;
+
   /// Button to use {method} to sign in to the app.
   ///
   /// In en, this message translates to:
@@ -1123,13 +1352,13 @@ abstract class ZulipLocalizations {
   /// **'Hide password'**
   String get loginHidePassword;
 
-  /// Label for input when an email is required to log in.
+  /// Label for input when an email address is required to log in.
   ///
   /// In en, this message translates to:
   /// **'Email address'**
   String get loginEmailLabel;
 
-  /// Error message when an empty email was provided.
+  /// Error message when an empty email address was provided.
   ///
   /// In en, this message translates to:
   /// **'Please enter your email.'**
@@ -1162,8 +1391,8 @@ abstract class ZulipLocalizations {
   /// Topic validation error when topic is too long.
   ///
   /// In en, this message translates to:
-  /// **'Topic length shouldn\'t be greater than 60 characters.'**
-  String get topicValidationErrorTooLong;
+  /// **'Topic length shouldn\'t be greater than {maxLength, plural, =1{1 character} other{{maxLength} characters}}.'**
+  String topicValidationErrorTooLong(int maxLength);
 
   /// Topic validation error when topic is required but was empty.
   ///
@@ -1247,7 +1476,7 @@ abstract class ZulipLocalizations {
   /// **'Please enter a valid URL.'**
   String get serverUrlValidationErrorInvalidUrl;
 
-  /// Error message when URL looks like an email
+  /// Error message when URL looks like an email address
   ///
   /// In en, this message translates to:
   /// **'Please enter the server URL, not your email.'**
@@ -1306,6 +1535,30 @@ abstract class ZulipLocalizations {
   /// In en, this message translates to:
   /// **'Mark as unread failed'**
   String get errorMarkAsUnreadFailedTitle;
+
+  /// Title of the confirmation dialog for marking all messages as read. The '+' means 'this many messages or more'.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Mark {count}+ messages as read?} other{Mark {count}+ messages as read?}}'**
+  String markAllAsReadConfirmationDialogTitle(int count);
+
+  /// Title of the confirmation dialog for marking all messages as read.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark messages as read?'**
+  String get markAllAsReadConfirmationDialogTitleNoCount;
+
+  /// Message in the confirmation dialog for marking all messages as read.
+  ///
+  /// In en, this message translates to:
+  /// **'Messages in multiple conversations may be affected.'**
+  String get markAllAsReadConfirmationDialogMessage;
+
+  /// Label for the 'Mark as read' button on a confirmation dialog for marking all messages as read.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as read'**
+  String get markAllAsReadConfirmationDialogConfirmButton;
 
   /// Term to use to reference the current day.
   ///
@@ -1540,8 +1793,14 @@ abstract class ZulipLocalizations {
   /// Centered text on the 'Inbox' page saying that there is no content to show.
   ///
   /// In en, this message translates to:
-  /// **'There are no unread messages in your inbox. Use the buttons below to view the combined feed or list of channels.'**
-  String get inboxEmptyPlaceholder;
+  /// **'There are no unread messages in your inbox.'**
+  String get inboxEmptyPlaceholderHeader;
+
+  /// Additional centered text on the 'Inbox' page saying that there is no content to show.
+  ///
+  /// In en, this message translates to:
+  /// **'Use the buttons below to view the combined feed or list of channels.'**
+  String get inboxEmptyPlaceholderMessage;
 
   /// Title for the page with a list of DM conversations.
   ///
@@ -1558,8 +1817,14 @@ abstract class ZulipLocalizations {
   /// Centered text on the 'Direct messages' page saying that there is no content to show.
   ///
   /// In en, this message translates to:
-  /// **'You have no direct messages yet! Why not start the conversation?'**
-  String get recentDmConversationsEmptyPlaceholder;
+  /// **'You have no direct messages yet!'**
+  String get recentDmConversationsEmptyPlaceholderHeader;
+
+  /// Additional centered text on the 'Direct messages' page saying that there is no content to show.
+  ///
+  /// In en, this message translates to:
+  /// **'Why not start a conversation?'**
+  String get recentDmConversationsEmptyPlaceholderMessage;
 
   /// Page title for the 'Combined feed' message view.
   ///
@@ -1588,14 +1853,20 @@ abstract class ZulipLocalizations {
   /// Centered text on the 'Channels' page saying that there is no content to show.
   ///
   /// In en, this message translates to:
-  /// **'You are not subscribed to any channels yet.'**
-  String get channelsEmptyPlaceholder;
+  /// **'You’re not subscribed to any channels yet.'**
+  String get channelsEmptyPlaceholderHeader;
 
-  /// Title for the page about sharing content received from other apps.
+  /// Centered text on the 'Channels' page saying that there is no content to show, with a link to 'All channels'.
   ///
   /// In en, this message translates to:
-  /// **'Share'**
-  String get sharePageTitle;
+  /// **'Try going to <z-link>{allChannelsPageTitle}</z-link> and joining some of them.'**
+  String channelsEmptyPlaceholderMessage(String allChannelsPageTitle);
+
+  /// Title for the modal bottom sheet about selecting an account to share content received from other apps.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose an account'**
+  String get shareChooseAccountModalTitle;
 
   /// Label for main-menu button leading to the user's own profile.
   ///
@@ -1734,6 +2005,12 @@ abstract class ZulipLocalizations {
   /// In en, this message translates to:
   /// **'Notify topic'**
   String get wildcardMentionTopicDescription;
+
+  /// Label for the Menu button on the bottom navigation bar.
+  ///
+  /// In en, this message translates to:
+  /// **'Menu'**
+  String get navBarMenuLabel;
 
   /// Label for an edited message. (Use ALL CAPS for cased alphabets: Latin, Greek, Cyrillic, etc.)
   ///
@@ -1962,6 +2239,12 @@ abstract class ZulipLocalizations {
   /// In en, this message translates to:
   /// **'Zulip'**
   String get zulipAppTitle;
+
+  /// Header text shown when a channel has no topics.
+  ///
+  /// In en, this message translates to:
+  /// **'There are no topics here yet.'**
+  String get topicListEmptyPlaceholderHeader;
 }
 
 class _ZulipLocalizationsDelegate
@@ -1979,16 +2262,25 @@ class _ZulipLocalizationsDelegate
   bool isSupported(Locale locale) => <String>[
     'ar',
     'de',
+    'el',
     'en',
+    'es',
+    'et',
     'fr',
+    'he',
+    'hu',
     'it',
     'ja',
+    'kk',
+    'lv',
     'nb',
     'pl',
+    'pt',
     'ru',
     'sk',
     'sl',
     'uk',
+    'vi',
     'zh',
   ].contains(locale.languageCode);
 
@@ -2015,6 +2307,14 @@ ZulipLocalizations lookupZulipLocalizations(Locale locale) {
         }
         break;
       }
+    case 'pt':
+      {
+        switch (locale.countryCode) {
+          case 'PT':
+            return ZulipLocalizationsPtPt();
+        }
+        break;
+      }
   }
 
   // Lookup logic when only language code is specified.
@@ -2023,18 +2323,34 @@ ZulipLocalizations lookupZulipLocalizations(Locale locale) {
       return ZulipLocalizationsAr();
     case 'de':
       return ZulipLocalizationsDe();
+    case 'el':
+      return ZulipLocalizationsEl();
     case 'en':
       return ZulipLocalizationsEn();
+    case 'es':
+      return ZulipLocalizationsEs();
+    case 'et':
+      return ZulipLocalizationsEt();
     case 'fr':
       return ZulipLocalizationsFr();
+    case 'he':
+      return ZulipLocalizationsHe();
+    case 'hu':
+      return ZulipLocalizationsHu();
     case 'it':
       return ZulipLocalizationsIt();
     case 'ja':
       return ZulipLocalizationsJa();
+    case 'kk':
+      return ZulipLocalizationsKk();
+    case 'lv':
+      return ZulipLocalizationsLv();
     case 'nb':
       return ZulipLocalizationsNb();
     case 'pl':
       return ZulipLocalizationsPl();
+    case 'pt':
+      return ZulipLocalizationsPt();
     case 'ru':
       return ZulipLocalizationsRu();
     case 'sk':
@@ -2043,6 +2359,8 @@ ZulipLocalizations lookupZulipLocalizations(Locale locale) {
       return ZulipLocalizationsSl();
     case 'uk':
       return ZulipLocalizationsUk();
+    case 'vi':
+      return ZulipLocalizationsVi();
     case 'zh':
       return ZulipLocalizationsZh();
   }

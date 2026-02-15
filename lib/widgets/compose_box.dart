@@ -24,6 +24,7 @@ import 'color.dart';
 import 'dialog.dart';
 import 'icons.dart';
 import 'inset_shadow.dart';
+import 'message_list.dart';
 import 'page.dart';
 import 'store.dart';
 import 'text.dart';
@@ -88,7 +89,9 @@ const double _composeButtonSize = 44;
 ///
 /// Subclasses must ensure that [_update] is called in all exposed constructors.
 abstract class ComposeController<ErrorT> extends TextEditingController {
-  ComposeController({super.text});
+  ComposeController({super.text, required this.store});
+
+  PerAccountStore store;
 
   int get maxLengthUnicodeCodePoints;
 
@@ -140,10 +143,10 @@ enum TopicValidationError {
   mandatoryButEmpty,
   tooLong;
 
-  String message(ZulipLocalizations zulipLocalizations) {
+  String message(ZulipLocalizations zulipLocalizations, {required int maxLength}) {
     switch (this) {
       case tooLong:
-        return zulipLocalizations.topicValidationErrorTooLong;
+        return zulipLocalizations.topicValidationErrorTooLong(maxLength);
       case mandatoryButEmpty:
         return zulipLocalizations.topicValidationErrorMandatoryButEmpty;
     }
@@ -151,17 +154,14 @@ enum TopicValidationError {
 }
 
 class ComposeTopicController extends ComposeController<TopicValidationError> {
-  ComposeTopicController({super.text, required this.store}) {
+  ComposeTopicController({super.text, required super.store}) {
     _update();
   }
-
-  PerAccountStore store;
 
   // TODO(#668): listen to [PerAccountStore] once we subscribe to this value
   bool get mandatory => store.realmMandatoryTopics;
 
-  // TODO(#307) use `max_topic_length` instead of hardcoded limit
-  @override final maxLengthUnicodeCodePoints = kMaxTopicLengthCodePoints;
+  @override int get maxLengthUnicodeCodePoints => store.maxTopicLength;
 
   @override
   String _computeTextNormalized() {
@@ -234,7 +234,11 @@ enum ContentValidationError {
 }
 
 class ComposeContentController extends ComposeController<ContentValidationError> {
-  ComposeContentController({super.text, this.requireNotEmpty = true}) {
+  ComposeContentController({
+    super.text,
+    required super.store,
+    this.requireNotEmpty = true,
+  }) {
     _update();
   }
 
@@ -1308,11 +1312,12 @@ class _SendButtonState extends State<_SendButton> {
 
     if (_hasValidationErrors) {
       final zulipLocalizations = ZulipLocalizations.of(context);
+      final store = PerAccountStoreWidget.of(context);
       List<String> validationErrorMessages = [
         for (final error in (controller is StreamComposeBoxController
                               ? controller.topic.validationErrors
                               : const <TopicValidationError>[]))
-          error.message(zulipLocalizations),
+          error.message(zulipLocalizations, maxLength: store.maxTopicLength),
         for (final error in controller.content.validationErrors)
           error.message(zulipLocalizations),
       ];
@@ -1323,13 +1328,15 @@ class _SendButtonState extends State<_SendButton> {
       return;
     }
 
-    final store = PerAccountStoreWidget.of(context);
+    final destination = widget.getDestination();
     final content = controller.content.textNormalized;
 
     controller.content.clear();
 
     try {
-      await store.sendMessage(destination: widget.getDestination(), content: content);
+      final store = PerAccountStoreWidget.of(context);
+      await store.sendMessage(destination: destination, content: content);
+      if (!mounted) return;
     } on ApiRequestException catch (e) {
       if (!mounted) return;
       final zulipLocalizations = ZulipLocalizations.of(context);
@@ -1341,6 +1348,20 @@ class _SendButtonState extends State<_SendButton> {
         title: zulipLocalizations.errorMessageNotSent,
         message: message);
       return;
+    }
+
+    final store = PerAccountStoreWidget.of(context);
+    if (
+      destination is StreamDestination
+      && store.subscriptions[destination.streamId] == null
+    ) {
+      // The message was sent to an unsubscribed channel.
+      // We don't get new-message events for unsubscribed channels,
+      // but we can refresh the view when a send-message request succeeds,
+      // so the user will at least see their own messages without having to
+      // exit and re-enter. See the "first buggy behavior" in
+      //   https://github.com/zulip/zulip-flutter/issues/1798 .
+      MessageListPage.ancestorOf(context).refresh(AnchorCode.newest);
     }
   }
 
@@ -1574,7 +1595,10 @@ class _EditMessageComposeBoxBody extends _ComposeBoxBody {
 }
 
 sealed class ComposeBoxController {
-  final content = ComposeContentController();
+  ComposeBoxController({required PerAccountStore store})
+    : content = ComposeContentController(store: store);
+
+  final ComposeContentController content;
   final contentFocusNode = FocusNode();
 
   /// If no input is focused, requests focus on the appropriate input.
@@ -1667,7 +1691,7 @@ enum ComposeTopicInteractionStatus {
 }
 
 class StreamComposeBoxController extends ComposeBoxController {
-  StreamComposeBoxController({required PerAccountStore store})
+  StreamComposeBoxController({required super.store})
     : topic = ComposeTopicController(store: store);
 
   final ComposeTopicController topic;
@@ -1697,21 +1721,25 @@ class StreamComposeBoxController extends ComposeBoxController {
   }
 }
 
-class FixedDestinationComposeBoxController extends ComposeBoxController {}
+class FixedDestinationComposeBoxController extends ComposeBoxController {
+  FixedDestinationComposeBoxController({required super.store});
+}
 
 class EditMessageComposeBoxController extends ComposeBoxController {
   EditMessageComposeBoxController({
+    required super.store,
     required this.messageId,
     required this.originalRawContent,
     required String? initialText,
   }) : _content = ComposeContentController(
                     text: initialText,
+                    store: store,
                     // Editing to delete the content is a supported form of
                     // deletion: https://zulip.com/help/delete-a-message#delete-message-content
                     requireNotEmpty: false);
 
-  factory EditMessageComposeBoxController.empty(int messageId) =>
-    EditMessageComposeBoxController(messageId: messageId,
+  factory EditMessageComposeBoxController.empty(PerAccountStore store, int messageId) =>
+    EditMessageComposeBoxController(store: store, messageId: messageId,
       originalRawContent: null, initialText: null);
 
   @override ComposeContentController get content => _content;
@@ -1724,14 +1752,29 @@ class EditMessageComposeBoxController extends ComposeBoxController {
 /// A banner to display over or instead of interactive compose-box content.
 ///
 /// Must have a [PageRoot] ancestor.
-abstract class _Banner extends StatelessWidget {
-  const _Banner();
+class _Banner extends StatelessWidget {
+  const _Banner({
+    required this.intent,
+    required this.label,
+    this.useSmallerText = false,
+    this.trailing,
+    this.padEnd = true, // ignore: unused_element_parameter
+  });
 
-  String getLabel(ZulipLocalizations zulipLocalizations);
-  Color getLabelColor(DesignVariables designVariables);
-  Color getBackgroundColor(DesignVariables designVariables);
+  final _BannerIntent intent;
+  final String label;
 
-  /// A trailing element, with vertical but not horizontal outer padding
+  /// Whether to decrease the label's font size and line height slightly.
+  ///
+  /// When [label] is so long
+  /// that it doesn't fit on a single line in common device configurations,
+  /// consider passing `true` for this,
+  /// and consider shrinking [trailing], e.g. with [ZulipWebUiKitButton.size].
+  final bool useSmallerText;
+
+  /// An optional trailing element.
+  ///
+  /// It should include vertical but not horizontal outer padding
   /// for spacing/positioning.
   ///
   /// An interactive element's touchable area should have height at least 44px,
@@ -1739,34 +1782,47 @@ abstract class _Banner extends StatelessWidget {
   /// what gets painted:
   ///   https://github.com/zulip/zulip-flutter/pull/1432#discussion_r2023907300
   ///
-  /// To control the element's distance from the end edge, override [padEnd].
-  ///
-  /// The passed [BuildContext] will be the result of [PageRoot.contextOf],
-  /// so it's expected to remain mounted until the whole page disappears,
-  /// which may be long after the banner disappears.
-  Widget? buildTrailing(BuildContext pageContext);
+  /// To control the element's distance from the end edge, use [padEnd].
+  // An "x" button could go here.
+  // 24px square with 8px touchable padding in all directions?
+  // and `padEnd: false`; see Figma:
+  //   https://www.figma.com/design/1JTNtYo9memgW7vV6d0ygq/Zulip-Mobile?node-id=4031-17029&m=dev
+  final Widget? trailing;
 
   /// Whether to apply `end: 8` in [SafeArea.minimum].
   ///
-  /// Subclasses can use `false` when the [buildTrailing] element
+  /// Pass `false` when the [trailing] element
   /// is meant to abut the edge of the screen
   /// in the common case that there are no horizontal device insets.
-  bool get padEnd => true;
+  ///
+  /// Defaults to `true`.
+  final bool padEnd;
 
   @override
   Widget build(BuildContext context) {
-    final zulipLocalizations = ZulipLocalizations.of(context);
     final designVariables = DesignVariables.of(context);
+
+    final (labelColor, backgroundColor) = switch (intent) {
+      _BannerIntent.info =>
+        (designVariables.bannerTextIntInfo, designVariables.bannerBgIntInfo),
+      _BannerIntent.warning =>
+        (designVariables.btnLabelAttMediumIntWarning, designVariables.bannerBgIntWarning),
+      _BannerIntent.danger =>
+        (designVariables.btnLabelAttMediumIntDanger, designVariables.bannerBgIntDanger),
+    };
+
     final labelTextStyle = TextStyle(
-      fontSize: 17,
-      height: 22 / 17,
-      color: getLabelColor(designVariables),
+      fontSize: useSmallerText
+        ? 16
+        : 17,
+      height: useSmallerText
+        ? 18 / 16
+        : 22 / 17,
+      color: labelColor,
     ).merge(weightVariableTextStyle(context, wght: 600));
 
-    final trailing = buildTrailing(PageRoot.contextOf(context));
     return DecoratedBox(
-      decoration: BoxDecoration(
-        color: getBackgroundColor(designVariables)),
+      decoration: BoxDecoration(color: backgroundColor),
       child: SafeArea(
         minimum: EdgeInsetsDirectional.only(start: 8, end: padEnd ? 8 : 0)
           // (SafeArea.minimum doesn't take an EdgeInsetsDirectional)
@@ -1781,62 +1837,65 @@ abstract class _Banner extends StatelessWidget {
                   child: Text(
                     style: labelTextStyle,
                     textScaler: MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.5),
-                    getLabel(zulipLocalizations)))),
+                    label))),
               if (trailing != null) ...[
                 const SizedBox(width: 8),
-                trailing,
+                trailing!,
               ],
             ]))));
   }
 }
 
-class _ErrorBanner extends _Banner {
-  const _ErrorBanner({
-    required String Function(ZulipLocalizations) getLabel,
-  }) : _getLabel = getLabel;
+enum _BannerIntent {
+  info,
+  warning,
+  danger,
+}
+
+class _UnsubscribedChannelBannerTrailing extends StatelessWidget {
+  const _UnsubscribedChannelBannerTrailing({required this.channelId});
+
+  final int channelId;
 
   @override
-  String getLabel(ZulipLocalizations zulipLocalizations) =>
-    _getLabel(zulipLocalizations);
-  final String Function(ZulipLocalizations) _getLabel;
+  Widget build(BuildContext context) {
+    // (A BuildContext that's expected to remain mounted until the whole page
+    // disappears, which may be long after the banner disappears.)
+    final pageContext = PageRoot.contextOf(context);
 
-  @override
-  Color getLabelColor(DesignVariables designVariables) =>
-    designVariables.btnLabelAttMediumIntDanger;
-
-  @override
-  Color getBackgroundColor(DesignVariables designVariables) =>
-    designVariables.bannerBgIntDanger;
-
-  @override
-  Widget? buildTrailing(pageContext) {
-    // An "x" button can go here.
-    // 24px square with 8px touchable padding in all directions?
-    // and `bool get padEnd => false`; see Figma:
-    //   https://www.figma.com/design/1JTNtYo9memgW7vV6d0ygq/Zulip-Mobile?node-id=4031-17029&m=dev
-    return null;
+    final zulipLocalizations = ZulipLocalizations.of(pageContext);
+    return Row(mainAxisSize: MainAxisSize.min, spacing: 8, children: [
+      ZulipWebUiKitButton(
+        label: zulipLocalizations.composeBoxBannerButtonRefresh,
+        size: .small,
+        intent: ZulipWebUiKitButtonIntent.warning,
+        onPressed: () {
+          MessageListPage.ancestorOf(pageContext).refresh();
+        }),
+      ZulipWebUiKitButton(
+        label: zulipLocalizations.composeBoxBannerButtonSubscribe,
+        size: .small,
+        intent: ZulipWebUiKitButtonIntent.warning,
+        attention: ZulipWebUiKitButtonAttention.high,
+        onPressed: () async {
+          await ZulipAction.subscribeToChannel(pageContext, channelId: channelId);
+          if (!pageContext.mounted) return;
+          MessageListPage.ancestorOf(pageContext).refresh();
+        }),
+    ]);
   }
 }
 
-class _EditMessageBanner extends _Banner {
-  const _EditMessageBanner({required this.composeBoxState});
+class _EditMessageBannerTrailing extends StatelessWidget {
+  const _EditMessageBannerTrailing({required this.composeBoxState});
 
   final ComposeBoxState composeBoxState;
 
-  @override
-  String getLabel(ZulipLocalizations zulipLocalizations) =>
-    zulipLocalizations.composeBoxBannerLabelEditMessage;
+  void _handleTapSave (BuildContext context) async {
+    // (A BuildContext that's expected to remain mounted until the whole page
+    // disappears, which may be long after the banner disappears.)
+    final pageContext = PageRoot.contextOf(context);
 
-  @override
-  Color getLabelColor(DesignVariables designVariables) =>
-    designVariables.bannerTextIntInfo;
-
-  @override
-  Color getBackgroundColor(DesignVariables designVariables) =>
-    designVariables.bannerBgIntInfo;
-
-  void _handleTapSave (BuildContext pageContext) async {
-    final store = PerAccountStoreWidget.of(pageContext);
     final controller = composeBoxState.controller;
     if (controller is! EditMessageComposeBoxController) return; // TODO(log)
     final zulipLocalizations = ZulipLocalizations.of(pageContext);
@@ -1863,10 +1922,12 @@ class _EditMessageBanner extends _Banner {
     composeBoxState.endEditInteraction();
 
     try {
+      final store = PerAccountStoreWidget.of(pageContext);
       await store.editMessage(
         messageId: messageId,
         originalRawContent: originalRawContent,
         newContent: newContent);
+      if (!pageContext.mounted) return;
     } on ApiRequestException catch (e) {
       if (!pageContext.mounted) return;
       final zulipLocalizations = ZulipLocalizations.of(pageContext);
@@ -1879,11 +1940,30 @@ class _EditMessageBanner extends _Banner {
         message: message);
       return;
     }
+
+    final store = PerAccountStoreWidget.of(pageContext);
+    final messageListPageState = MessageListPage.ancestorOf(pageContext);
+    final narrow = messageListPageState.narrow;
+    final message = store.messages[messageId];
+    if (
+      message != null // (the message wasn't deleted during the edit request)
+      && narrow.containsMessage(message) == true // (or moved out of the view)
+      && message is StreamMessage
+      && store.subscriptions[message.conversation.streamId] == null
+    ) {
+      // The message is in an unsubscribed channel.
+      // We don't get edit-message events for unsubscribed channels,
+      // but we can refresh the view when an edit-message request succeeds,
+      // so the user will at least see their updated message without having to
+      // exit and re-enter. See the "first buggy behavior" in
+      //   https://github.com/zulip/zulip-flutter/issues/1798 .
+      messageListPageState.refresh(NumericAnchor(messageId));
+    }
   }
 
   @override
-  Widget buildTrailing(pageContext) {
-    final zulipLocalizations = ZulipLocalizations.of(pageContext);
+  Widget build(BuildContext context) {
+    final zulipLocalizations = ZulipLocalizations.of(context);
     return Row(mainAxisSize: MainAxisSize.min, spacing: 8, children: [
       ZulipWebUiKitButton(label: zulipLocalizations.composeBoxBannerButtonCancel,
         onPressed: composeBoxState.endEditInteraction),
@@ -1891,7 +1971,7 @@ class _EditMessageBanner extends _Banner {
       //   or the original raw content hasn't loaded yet
       ZulipWebUiKitButton(label: zulipLocalizations.composeBoxBannerButtonSave,
         attention: ZulipWebUiKitButtonAttention.high,
-        onPressed: () => _handleTapSave(pageContext)),
+        onPressed: () => _handleTapSave(context)),
     ]);
   }
 }
@@ -2024,7 +2104,7 @@ class _ComposeBoxState extends State<ComposeBox> with PerAccountStoreAwareStateM
       final dialog = showSuggestedActionDialog(context: context,
         title: zulipLocalizations.discardDraftConfirmationDialogTitle,
         message: dialogMessage,
-        // TODO(#1032) "destructive" style for action button
+        destructiveActionButton: true,
         actionButtonText: zulipLocalizations.discardDraftConfirmationDialogConfirmButton);
       if (await dialog.result != true) return true;
     }
@@ -2040,6 +2120,7 @@ class _ComposeBoxState extends State<ComposeBox> with PerAccountStoreAwareStateM
     setState(() {
       controller.dispose();
       _controller = EditMessageComposeBoxController(
+        store: store,
         messageId: messageId,
         originalRawContent: failedEdit.originalRawContent,
         initialText: failedEdit.newContent,
@@ -2049,8 +2130,9 @@ class _ComposeBoxState extends State<ComposeBox> with PerAccountStoreAwareStateM
   }
 
   void _editFromRawContentFetch(int messageId) async {
+    final store = PerAccountStoreWidget.of(context);
     final zulipLocalizations = ZulipLocalizations.of(context);
-    final emptyEditController = EditMessageComposeBoxController.empty(messageId);
+    final emptyEditController = EditMessageComposeBoxController.empty(store, messageId);
     setState(() {
       controller.dispose();
       _controller = emptyEditController;
@@ -2073,7 +2155,6 @@ class _ComposeBoxState extends State<ComposeBox> with PerAccountStoreAwareStateM
       // Fetch-raw-content failed; abort the edit session.
       // An error dialog was already shown, by fetchRawContentWithFeedback.
       setState(() {
-        controller.dispose();
         _setNewController(PerAccountStoreWidget.of(context));
       });
       return;
@@ -2101,7 +2182,6 @@ class _ComposeBoxState extends State<ComposeBox> with PerAccountStoreAwareStateM
 
     final store = PerAccountStoreWidget.of(context);
     setState(() {
-      controller.dispose();
       _setNewController(store);
     });
   }
@@ -2118,20 +2198,22 @@ class _ComposeBoxState extends State<ComposeBox> with PerAccountStoreAwareStateM
 
     switch (controller) {
       case StreamComposeBoxController():
+        controller.content.store = newStore;
         controller.topic.store = newStore;
       case FixedDestinationComposeBoxController():
       case EditMessageComposeBoxController():
-        // no reference to the store that needs updating
+        controller.content.store = newStore;
     }
   }
 
   void _setNewController(PerAccountStore store) {
+    _controller?.dispose(); // `?.` because this might be the first call
     switch (widget.narrow) {
       case ChannelNarrow():
         _controller = StreamComposeBoxController(store: store);
       case TopicNarrow():
       case DmNarrow():
-        _controller = FixedDestinationComposeBoxController();
+        _controller = FixedDestinationComposeBoxController(store: store);
       case CombinedFeedNarrow():
       case MentionsNarrow():
       case StarredMessagesNarrow():
@@ -2146,25 +2228,56 @@ class _ComposeBoxState extends State<ComposeBox> with PerAccountStoreAwareStateM
     super.dispose();
   }
 
-  /// An [_ErrorBanner] that replaces the compose box's text inputs.
-  Widget? _errorBannerComposingNotAllowed(BuildContext context) {
+  /// A [_Banner] that replaces the compose box's text inputs.
+  Widget? _bannerComposingNotAllowed(BuildContext context) {
     final store = PerAccountStoreWidget.of(context);
+    final zulipLocalizations = ZulipLocalizations.of(context);
     switch (widget.narrow) {
       case ChannelNarrow(:final streamId):
       case TopicNarrow(:final streamId):
         final channel = store.streams[streamId];
-        if (channel == null || !store.hasPostingPermission(inChannel: channel,
-            user: store.selfUser, byDate: DateTime.now())) {
-          return _ErrorBanner(getLabel: (zulipLocalizations) =>
-            zulipLocalizations.errorBannerCannotPostInChannelLabel);
+        if (channel == null || !store.selfHasContentAccess(channel)) {
+          return _Banner(
+            intent: _BannerIntent.info,
+            // This message is redundant with a message-list placeholder
+            // we'll show following a doomed-empty message fetch (from #1947):
+            // "This channel doesn’t exist, or you are not allowed to view it."
+            // Or: "You don’t have content access to this channel."
+            // TODO(#2085) Actually, I tried reproducing the case where a channel
+            //   doesn't exist, with a very high number for the channel ID,
+            //   and got an infinite loading spinner instead; we should fix that.
+            // TODO So, support replacing the compose box with nothing,
+            //   not even a banner, in narrows that can offer a compose box.
+            //   (We'll need to handle the bottom device inset carefully.)
+            label: zulipLocalizations.composeBoxBannerLabelCannotSendUnspecifiedReason);
+        }
+
+        if (!store.selfCanSendMessage(inChannel: channel, byDate: DateTime.now())) {
+          return (channel is Subscription)
+            ? _Banner(
+                intent: _BannerIntent.info,
+                label: zulipLocalizations.composeBoxBannerLabelCannotSendInChannel)
+            : _Banner(
+                intent: _BannerIntent.warning,
+                label: zulipLocalizations.composeBoxBannerLabelUnsubscribedWhenCannotSend,
+                useSmallerText: true,
+                trailing: _UnsubscribedChannelBannerTrailing(channelId: streamId));
         }
 
       case DmNarrow(:final otherRecipientIds):
         final hasDeactivatedUser = otherRecipientIds.any((id) =>
           !(store.getUser(id)?.isActive ?? true));
         if (hasDeactivatedUser) {
-          return _ErrorBanner(getLabel: (zulipLocalizations) =>
-            zulipLocalizations.errorBannerDeactivatedDmLabel);
+          return _Banner(
+            intent: _BannerIntent.info,
+            label: zulipLocalizations.composeBoxBannerLabelDeactivatedDmRecipient);
+        }
+        final hasUnknownUser = otherRecipientIds.any((id) =>
+          store.getUser(id) == null);
+        if (hasUnknownUser) {
+          return _Banner(
+            intent: _BannerIntent.info,
+            label: zulipLocalizations.composeBoxBannerLabelUnknownDmRecipient);
         }
 
       case CombinedFeedNarrow():
@@ -2178,17 +2291,43 @@ class _ComposeBoxState extends State<ComposeBox> with PerAccountStoreAwareStateM
 
   @override
   Widget build(BuildContext context) {
-    final errorBanner = _errorBannerComposingNotAllowed(context);
-    if (errorBanner != null) {
+    final store = PerAccountStoreWidget.of(context);
+    final zulipLocalizations = ZulipLocalizations.of(context);
+
+    final bannerComposingNotAllowed = _bannerComposingNotAllowed(context);
+    if (bannerComposingNotAllowed != null) {
       return ComposeBoxInheritedWidget.fromComposeBoxState(this,
-        child: _ComposeBoxContainer(body: null, banner: errorBanner));
+        child: _ComposeBoxContainer(body: null, banner: bannerComposingNotAllowed));
     }
 
     final Widget? body;
     Widget? banner;
 
-    final controller = this.controller;
     final narrow = widget.narrow;
+    switch (narrow) {
+      case ChannelNarrow(:final streamId):
+      case TopicNarrow(:final streamId):
+        final channel = store.streams[streamId];
+        // (If the channel is unknown, we should have already decided
+        // what to show.)
+        assert(channel != null);
+        final subscription = store.subscriptions[streamId];
+        if (channel != null && subscription == null) {
+          banner = _Banner(
+            intent: _BannerIntent.warning,
+            label: zulipLocalizations.composeBoxBannerLabelUnsubscribed,
+            useSmallerText: true,
+            trailing: _UnsubscribedChannelBannerTrailing(channelId: streamId));
+        }
+
+      case DmNarrow():
+      case CombinedFeedNarrow():
+      case MentionsNarrow():
+      case StarredMessagesNarrow():
+      case KeywordSearchNarrow():
+    }
+
+    final controller = this.controller;
     switch (controller) {
       case StreamComposeBoxController(): {
         narrow as ChannelNarrow;
@@ -2200,7 +2339,10 @@ class _ComposeBoxState extends State<ComposeBox> with PerAccountStoreAwareStateM
       }
       case EditMessageComposeBoxController(): {
         body = _EditMessageComposeBoxBody(controller: controller, narrow: narrow);
-        banner = _EditMessageBanner(composeBoxState: this);
+        banner = _Banner(
+          intent: _BannerIntent.info,
+          label: zulipLocalizations.composeBoxBannerLabelEditMessage,
+          trailing: _EditMessageBannerTrailing(composeBoxState: this));
       }
     }
 

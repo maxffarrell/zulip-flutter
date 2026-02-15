@@ -10,6 +10,7 @@ extension ComposeContentControllerChecks on Subject<ComposeContentController> {
 
 extension ComposeTopicControllerChecks on Subject<ComposeTopicController> {
   Subject<AutocompleteIntent<TopicAutocompleteQuery>?> get autocompleteIntent => has((c) => c.autocompleteIntent(), 'autocompleteIntent');
+  Subject<String> get textNormalized => has((c) => c.textNormalized, 'textNormalized');
 }
 
 extension AutocompleteIntentChecks on Subject<AutocompleteIntent<AutocompleteQuery>> {
@@ -31,4 +32,8 @@ extension UserGroupMentionAutocompleteResultChecks on Subject<UserGroupMentionAu
 
 extension TopicAutocompleteResultChecks on Subject<TopicAutocompleteResult> {
   Subject<TopicName> get topic => has((r) => r.topic, 'topic');
+}
+
+extension ChannelLinkAutocompleteResultChecks on Subject<ChannelLinkAutocompleteResult> {
+  Subject<int> get channelId => has((r) => r.channelId, 'channelId');
 }

@@ -53,6 +53,8 @@ class NotificationService {
   ValueNotifier<String?> token = ValueNotifier(null);
 
   Future<void> start() async {
+    await NotificationOpenService.instance.start();
+
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
         await ZulipBinding.instance.firebaseInitializeApp(
@@ -79,8 +81,6 @@ class NotificationService {
         await _getFcmToken();
 
       case TargetPlatform.iOS: // TODO(#324): defer requesting notif permission
-        await NotificationOpenService.instance.start();
-
         await ZulipBinding.instance.firebaseInitializeApp(
           options: kFirebaseOptionsIos);
 
@@ -147,7 +147,10 @@ class NotificationService {
     token.value = value;
   }
 
-  static Future<void> registerToken(ApiConnection connection, {required String token}) async {
+  Future<void> registerToken(ApiConnection connection) async {
+    final token = this.token.value;
+    if (token == null) return;
+
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
         await addFcmToken(connection, token: token);

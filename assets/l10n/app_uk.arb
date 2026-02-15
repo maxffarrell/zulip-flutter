@@ -26,6 +26,9 @@
   "@actionSheetOptionCopyTopicLink": {
     "description": "Label for copy topic link button in action sheet."
   },
+  "@actionSheetOptionDeleteMessage": {
+    "description": "Label for the 'Delete message' button in the message action sheet."
+  },
   "@actionSheetOptionEditMessage": {
     "description": "Label for the 'Edit message' button in the message action sheet."
   },
@@ -104,14 +107,29 @@
   "@actionSheetReadReceiptsZeroReadCount": {
     "description": "Label in the \"Read receipts\" bottom sheet when no one has read the message."
   },
+  "@allChannelsEmptyPlaceholderHeader": {
+    "description": "Centered text on the 'All channels' page saying that there is no content to show."
+  },
+  "@allChannelsPageTitle": {
+    "description": "Title for the 'All channels' page."
+  },
   "@appVersionUnknownPlaceholder": {
     "description": "Placeholder to show in place of the app version when it is unknown."
   },
   "@channelFeedButtonTooltip": {
     "description": "Tooltip for button to navigate to a given channel's feed"
   },
-  "@channelsEmptyPlaceholder": {
+  "@channelsEmptyPlaceholderHeader": {
     "description": "Centered text on the 'Channels' page saying that there is no content to show."
+  },
+  "@channelsEmptyPlaceholderMessage": {
+    "description": "Centered text on the 'Channels' page saying that there is no content to show, with a link to 'All channels'.",
+    "placeholders": {
+      "allChannelsPageTitle": {
+        "example": "All channels",
+        "type": "String"
+      }
+    }
   },
   "@channelsPageTitle": {
     "description": "Title for the page with a list of subscribed channels."
@@ -140,11 +158,35 @@
   "@composeBoxBannerButtonCancel": {
     "description": "Label text for the 'Cancel' button in the compose-box banner when you are editing a message."
   },
+  "@composeBoxBannerButtonRefresh": {
+    "description": "Label text for the 'Refresh' button in the compose-box banner when you are viewing an unsubscribed channel."
+  },
   "@composeBoxBannerButtonSave": {
     "description": "Label text for the 'Save' button in the compose-box banner when you are editing a message."
   },
+  "@composeBoxBannerButtonSubscribe": {
+    "description": "Label text for the 'Subscribe' button in the compose-box banner when you are viewing an unsubscribed channel."
+  },
+  "@composeBoxBannerLabelCannotSendInChannel": {
+    "description": "Error-banner text replacing the compose box when you do not have permission to send a message to the channel."
+  },
+  "@composeBoxBannerLabelCannotSendUnspecifiedReason": {
+    "description": "Label text for a banner replacing the compose box when you cannot send messages in the channel for an unspecified reason."
+  },
+  "@composeBoxBannerLabelDeactivatedDmRecipient": {
+    "description": "Label text for error banner when sending a message to one or multiple deactivated users."
+  },
   "@composeBoxBannerLabelEditMessage": {
     "description": "Label text for the compose-box banner when you are editing a message."
+  },
+  "@composeBoxBannerLabelUnknownDmRecipient": {
+    "description": "Label text for a banner replacing the compose box when you cannot send messages in the DM conversation because one or more members are unknown."
+  },
+  "@composeBoxBannerLabelUnsubscribed": {
+    "description": "Label text for a compose-box banner when you are viewing an unsubscribed channel."
+  },
+  "@composeBoxBannerLabelUnsubscribedWhenCannotSend": {
+    "description": "Label text for a compose-box banner when you are viewing an unsubscribed channel in which you do not have permission to send messages."
   },
   "@composeBoxChannelContentHint": {
     "description": "Hint text for content input when sending a message to a channel.",
@@ -218,6 +260,15 @@
   "@contentValidationErrorUploadInProgress": {
     "description": "Content validation error message when attachments have not finished uploading."
   },
+  "@deleteMessageConfirmationDialogConfirmButton": {
+    "description": "Label for the 'Delete' button on a confirmation dialog for deleting a message."
+  },
+  "@deleteMessageConfirmationDialogMessage": {
+    "description": "Message for a confirmation dialog for deleting a message."
+  },
+  "@deleteMessageConfirmationDialogTitle": {
+    "description": "Title for a confirmation dialog for deleting a message."
+  },
   "@dialogCancel": {
     "description": "Button label in dialogs to cancel."
   },
@@ -266,8 +317,71 @@
   "@emptyMessageList": {
     "description": "Placeholder for some message-list pages when there are no messages."
   },
+  "@emptyMessageListChannelUnavailable": {
+    "description": "Placeholder for a channel page when there are no messages and the channel does not exist or you don't have access to it."
+  },
+  "@emptyMessageListChannelWithoutContentAccess": {
+    "description": "Placeholder for a channel or topic page when there are no messages and you don’t have content access."
+  },
+  "@emptyMessageListCombinedFeed": {
+    "description": "Placeholder for the 'Combined feed' page when there are no messages."
+  },
+  "@emptyMessageListDm": {
+    "description": "Placeholder for a 1:1 DM page when there are no messages.",
+    "placeholders": {
+      "person": {
+        "example": "Alice",
+        "type": "String"
+      }
+    }
+  },
+  "@emptyMessageListDmDeactivatedUser": {
+    "description": "Placeholder for a 1:1 DM page when there are no messages and the other user is deactivated.",
+    "placeholders": {
+      "person": {
+        "example": "Alice",
+        "type": "String"
+      }
+    }
+  },
+  "@emptyMessageListDmStartConversation": {
+    "description": "Extra detail in the placeholder for some DM pages when there are no messages."
+  },
+  "@emptyMessageListDmUnknownUser": {
+    "description": "Placeholder for a 1:1 DM page when there are no messages and the other user's name is unavailable."
+  },
+  "@emptyMessageListGroupDm": {
+    "description": "Placeholder for a group DM page when there are no messages."
+  },
+  "@emptyMessageListGroupDmDeactivatedUser": {
+    "description": "Placeholder for a group DM page when there are no messages and one or more participants is deactivated."
+  },
+  "@emptyMessageListMentionsHeader": {
+    "description": "Placeholder for the 'Mentions' page when there are no messages."
+  },
+  "@emptyMessageListMentionsMessage": {
+    "description": "Extra detail in the placeholder for the 'Mentions' page when there are no messages."
+  },
   "@emptyMessageListSearch": {
     "description": "Placeholder for the 'Search' page when there are no messages."
+  },
+  "@emptyMessageListSelfDmHeader": {
+    "description": "Placeholder for the self-DM page when there are no messages."
+  },
+  "@emptyMessageListSelfDmMessage": {
+    "description": "Extra detail in the placeholder for the self-DM page when there are no messages."
+  },
+  "@emptyMessageListStarredHeader": {
+    "description": "Placeholder for the 'Starred' page when there are no messages."
+  },
+  "@emptyMessageListStarredMessage": {
+    "description": "Extra detail in the placeholder for the 'Starred' page when there are no messages. The {button} placeholder will be the button's translated text.",
+    "placeholders": {
+      "button": {
+        "example": "Star message",
+        "type": "String"
+      }
+    }
   },
   "@errorAccountLoggedIn": {
     "description": "Error message on attempting to log into an account that's already logged in.",
@@ -284,12 +398,6 @@
   },
   "@errorAccountLoggedInTitle": {
     "description": "Error title on attempting to log into an account that's already logged in."
-  },
-  "@errorBannerCannotPostInChannelLabel": {
-    "description": "Error-banner text replacing the compose box when you do not have permission to send a message to the channel."
-  },
-  "@errorBannerDeactivatedDmLabel": {
-    "description": "Label text for error banner when sending a message to one or multiple deactivated users."
   },
   "@errorConnectingToServerDetails": {
     "description": "Dialog error message for a generic unknown error connecting to the server with details.",
@@ -316,6 +424,9 @@
   "@errorCopyingFailed": {
     "description": "Error message when copying the text of a message to the user's system clipboard failed."
   },
+  "@errorCouldNotAccessUploadedFileTitle": {
+    "description": "Error title on failure in opening a file someone previously uploaded to Zulip"
+  },
   "@errorCouldNotConnectTitle": {
     "description": "Error title when the app could not connect to the server."
   },
@@ -339,6 +450,9 @@
   },
   "@errorCouldNotShowUserProfile": {
     "description": "Message that appears on the user profile page when the profile cannot be shown."
+  },
+  "@errorDeleteMessageFailedTitle": {
+    "description": "Error title when deleting a message failed."
   },
   "@errorDialogContinue": {
     "description": "Button label in error dialogs to acknowledge the error and close the dialog."
@@ -582,8 +696,11 @@
       }
     }
   },
-  "@inboxEmptyPlaceholder": {
+  "@inboxEmptyPlaceholderHeader": {
     "description": "Centered text on the 'Inbox' page saying that there is no content to show."
+  },
+  "@inboxEmptyPlaceholderMessage": {
+    "description": "Additional centered text on the 'Inbox' page saying that there is no content to show."
   },
   "@inboxPageTitle": {
     "description": "Title for the page with unreads."
@@ -648,6 +765,9 @@
   "@loginMethodDivider": {
     "description": "Text on the divider between the username/password form and the third-party login options. Uppercase (for languages with letter case)."
   },
+  "@loginMethodDividerSemanticLabel": {
+    "description": "Semantic label for divider between the username/password form and the third-party login options."
+  },
   "@loginPageTitle": {
     "description": "Title for login page."
   },
@@ -665,6 +785,24 @@
   },
   "@manyPeopleTyping": {
     "description": "Text to display when there are multiple users typing."
+  },
+  "@markAllAsReadConfirmationDialogConfirmButton": {
+    "description": "Label for the 'Mark as read' button on a confirmation dialog for marking all messages as read."
+  },
+  "@markAllAsReadConfirmationDialogMessage": {
+    "description": "Message in the confirmation dialog for marking all messages as read."
+  },
+  "@markAllAsReadConfirmationDialogTitle": {
+    "description": "Title of the confirmation dialog for marking all messages as read. The '+' means 'this many messages or more'.",
+    "placeholders": {
+      "count": {
+        "description": "Minimum number of messages that will be marked as read",
+        "type": "int"
+      }
+    }
+  },
+  "@markAllAsReadConfirmationDialogTitleNoCount": {
+    "description": "Title of the confirmation dialog for marking all messages as read."
   },
   "@markAllAsReadLabel": {
     "description": "Button text to mark messages as read."
@@ -737,6 +875,12 @@
   },
   "@mutedUser": {
     "description": "Name for a muted user to display all over the app."
+  },
+  "@navBarMenuLabel": {
+    "description": "Label for the Menu button on the bottom navigation bar."
+  },
+  "@navButtonAllChannels": {
+    "description": "Title for a nav button that opens the 'All channels' page."
   },
   "@newDmFabButtonLabel": {
     "description": "Label for the floating action button (FAB) that opens the new DM sheet."
@@ -854,8 +998,11 @@
   "@reactionChipsLabel": {
     "description": "Text identifying the container of reaction chips on a message. (An accessibility label for assistive technology.)"
   },
-  "@recentDmConversationsEmptyPlaceholder": {
+  "@recentDmConversationsEmptyPlaceholderHeader": {
     "description": "Centered text on the 'Direct messages' page saying that there is no content to show."
+  },
+  "@recentDmConversationsEmptyPlaceholderMessage": {
+    "description": "Additional centered text on the 'Direct messages' page saying that there is no content to show."
   },
   "@recentDmConversationsPageTitle": {
     "description": "Title for the page with a list of DM conversations."
@@ -940,8 +1087,8 @@
   "@settingsPageTitle": {
     "description": "Title for the settings page."
   },
-  "@sharePageTitle": {
-    "description": "Title for the page about sharing content received from other apps."
+  "@shareChooseAccountModalTitle": {
+    "description": "Title for the modal bottom sheet about selecting an account to share content received from other apps."
   },
   "@signInWithFoo": {
     "description": "Button to use {method} to sign in to the app.",
@@ -994,8 +1141,8 @@
   "@successTopicLinkCopied": {
     "description": "Message when link of a topic was copied to the user's system clipboard."
   },
-  "@switchAccountButton": {
-    "description": "Label for main-menu button leading to the choose-account page."
+  "@switchAccountButtonTooltip": {
+    "description": "Tooltip message for main-menu button leading to the choose-account page."
   },
   "@themeSettingDark": {
     "description": "Label for dark theme setting."
@@ -1011,6 +1158,9 @@
   },
   "@today": {
     "description": "Term to use to reference the current day."
+  },
+  "@topicListEmptyPlaceholderHeader": {
+    "description": "Header text shown when a channel has no topics."
   },
   "@topicValidationErrorMandatoryButEmpty": {
     "description": "Topic validation error when topic is required but was empty."
@@ -1062,8 +1212,8 @@
   "@unsubscribeConfirmationDialogConfirmButton": {
     "description": "Label for the 'Unsubscribe' button on a confirmation dialog for unsubscribing from a channel."
   },
-  "@unsubscribeConfirmationDialogMessageMaybeCannotResubscribe": {
-    "description": "Message for a confirmation dialog for unsubscribing from a channel when you might not have permission to resubscribe."
+  "@unsubscribeConfirmationDialogMessageCannotResubscribe": {
+    "description": "Message for a confirmation dialog for unsubscribing from a channel when you will not have permission to resubscribe."
   },
   "@unsubscribeConfirmationDialogTitle": {
     "description": "Title for a confirmation dialog for unsubscribing from a channel.",
@@ -1221,6 +1371,7 @@
   "actionSheetOptionCopyMessageLink": "Копіювати посилання на повідомлення",
   "actionSheetOptionCopyMessageText": "Копіювати текст повідомлення",
   "actionSheetOptionCopyTopicLink": "Копіювати посилання на тему",
+  "actionSheetOptionDeleteMessage": "Видалити повідомлення",
   "actionSheetOptionEditMessage": "Редагувати повідомлення",
   "actionSheetOptionFollowTopic": "Підписатися на тему",
   "actionSheetOptionHideMutedMessage": "Сховати заглушене повідомлення",
@@ -1245,9 +1396,12 @@
   "actionSheetReadReceiptsErrorReadCount": "Не вдалося завантажити сповіщення про прочитання.",
   "actionSheetReadReceiptsReadCount": "{count, plural, =1{Це повідомлення було <z-link>прочитано</z-link> {count} особою:} other{Це повідомлення було <z-link>прочитано</z-link> {count} людьми:}}",
   "actionSheetReadReceiptsZeroReadCount": "Ніхто ще не прочитав цього повідомлення.",
+  "allChannelsEmptyPlaceholderHeader": "У цій організації немає каналів, які ви можете переглянути.",
+  "allChannelsPageTitle": "Усі канали",
   "appVersionUnknownPlaceholder": "(…)",
   "channelFeedButtonTooltip": "Стрічка каналу",
-  "channelsEmptyPlaceholder": "Ви ще не підписані на жодний канал.",
+  "channelsEmptyPlaceholderHeader": "Ви ще не підписані на жодний канал.",
+  "channelsEmptyPlaceholderMessage": "Спробуйте перейти за посиланням <z-link>{allChannelsPageTitle}</z-link> та приєднатися до деяких із них.",
   "channelsPageTitle": "Канали",
   "chooseAccountButtonAddAnAccount": "Додати обліковий запис",
   "chooseAccountPageLogOutButton": "Вийти",
@@ -1257,15 +1411,23 @@
   "composeBoxAttachFromCameraTooltip": "Зробити фото",
   "composeBoxAttachMediaTooltip": "Додати зображення або відео",
   "composeBoxBannerButtonCancel": "Відміна",
+  "composeBoxBannerButtonRefresh": "Оновити",
   "composeBoxBannerButtonSave": "Зберегти",
+  "composeBoxBannerButtonSubscribe": "Підписатися",
+  "composeBoxBannerLabelCannotSendInChannel": "Ви не маєте дозволу на публікацію в цьому каналі.",
+  "composeBoxBannerLabelCannotSendUnspecifiedReason": "Ви не можете надсилати повідомлення тут.",
+  "composeBoxBannerLabelDeactivatedDmRecipient": "Ви не можете надсилати повідомлення деактивованим користувачам.",
   "composeBoxBannerLabelEditMessage": "Редагування повідомлення",
+  "composeBoxBannerLabelUnknownDmRecipient": "Ви не можете надсилати повідомлення невідомим користувачам.",
+  "composeBoxBannerLabelUnsubscribed": "Відповіді на ваші повідомлення не з’являтимуться автоматично.",
+  "composeBoxBannerLabelUnsubscribedWhenCannotSend": "Нові повідомлення не з’являтимуться автоматично.",
   "composeBoxChannelContentHint": "Надіслати повідомлення {destination}",
   "composeBoxDmContentHint": "Повідомлення @{user}",
   "composeBoxEnterTopicOrSkipHintText": "Вкажіть тему (або залиште “{defaultTopicName}”)",
   "composeBoxGenericContentHint": "Ввести повідомлення",
   "composeBoxGroupDmContentHint": "Написати групі",
   "composeBoxLoadingMessage": "(завантаження повідомлення {messageId})",
-  "composeBoxSelfDmContentHint": "Занотувати щось",
+  "composeBoxSelfDmContentHint": "Напишіть собі записку",
   "composeBoxSendTooltip": "Надіслати",
   "composeBoxTopicHintText": "Тема",
   "composeBoxUploadingFilename": "Завантаження {filename}…",
@@ -1273,6 +1435,9 @@
   "contentValidationErrorQuoteAndReplyInProgress": "Будь ласка, дочекайтеся завершення цитування.",
   "contentValidationErrorTooLong": "Довжина повідомлення не повинна перевищувати 10000 символів.",
   "contentValidationErrorUploadInProgress": "Дочекайтеся завершення завантаження.",
+  "deleteMessageConfirmationDialogConfirmButton": "Видалити",
+  "deleteMessageConfirmationDialogMessage": "Видалення повідомлення назавжди вилучає його для всіх.",
+  "deleteMessageConfirmationDialogTitle": "Видалити повідомлення?",
   "dialogCancel": "Відміна",
   "dialogClose": "Закрити",
   "dialogContinue": "Продовжити",
@@ -1287,22 +1452,37 @@
   "emojiPickerSearchEmoji": "Пошук емодзі",
   "emojiReactionsMore": "більше",
   "emptyMessageList": "Тут немає повідомлень.",
+  "emptyMessageListChannelUnavailable": "Цього каналу не існує, або вам заборонено його переглядати.",
+  "emptyMessageListChannelWithoutContentAccess": "У вас немає <z-link>доступу до контенту</z-link> цього каналу.",
+  "emptyMessageListCombinedFeed": "У вашій об’єднаній стрічці немає повідомлень.",
+  "emptyMessageListDm": "У вас ще немає прямих повідомлень з {person}.",
+  "emptyMessageListDmDeactivatedUser": "У вас немає прямих повідомлень з {person}.",
+  "emptyMessageListDmStartConversation": "Чому б не розпочати розмову?",
+  "emptyMessageListDmUnknownUser": "У вас немає прямих повідомлень із цим користувачем.",
+  "emptyMessageListGroupDm": "У вас ще немає прямих повідомлень з цими користувачами.",
+  "emptyMessageListGroupDmDeactivatedUser": "У вас немає прямих повідомлень з цими користувачами.",
+  "emptyMessageListMentionsHeader": "У цьому режимі перегляду будуть відображатися повідомлення, де вас <z-link>згадують</z-link>.",
+  "emptyMessageListMentionsMessage": "Щоб привернути увагу до повідомлення, ви можете згадати користувача, групу, учасників теми або всіх підписників каналу. Введіть @ у полі створення листа та виберіть зі списку пропозицій, кого ви хочете згадати.",
   "emptyMessageListSearch": "Немає результатів пошуку.",
+  "emptyMessageListSelfDmHeader": "Ви ще не надіслали жодного особистого повідомлення самому собі!",
+  "emptyMessageListSelfDmMessage": "Використовуйте цей простір для особистих нотаток або для тестування функцій Zulip.",
+  "emptyMessageListStarredHeader": "У вас немає повідомлень із зірочкою.",
+  "emptyMessageListStarredMessage": "<z-link>Позначення зірочкою</z-link> – це гарний спосіб відстежувати важливі повідомлення, такі як завдання, до яких потрібно повернутися, або корисні посилання. Щоб позначити повідомлення зірочкою, довго натисніть на нього та натисніть «{button}»",
   "errorAccountLoggedIn": "Обліковий запис {email} на {server} уже є у вашому списку облікових записів.",
   "errorAccountLoggedInTitle": "В обліковий запис уже ввійшли",
-  "errorBannerCannotPostInChannelLabel": "Ви не маєте дозволу на публікацію в цьому каналі.",
-  "errorBannerDeactivatedDmLabel": "Ви не можете надсилати повідомлення деактивованим користувачам.",
   "errorConnectingToServerDetails": "Помилка підключення до Zulip на {serverUrl}. Буде повторена спроба:\n\n{error}",
   "errorConnectingToServerShort": "Помилка підключення до Zulip. Повторна спроба…",
   "errorContentNotInsertedTitle": "Вміст не вставлено",
   "errorContentToInsertIsEmpty": "Файл, який потрібно вставити, порожній або до нього немає доступу.",
   "errorCopyingFailed": "Помилка копіювання",
+  "errorCouldNotAccessUploadedFileTitle": "Не вдалося отримати доступ до завантаженого файлу",
   "errorCouldNotConnectTitle": "Не вдалося підключитися",
   "errorCouldNotEditMessageTitle": "Не вдалося редагувати повідомлення",
   "errorCouldNotFetchMessageSource": "Не вдалося отримати джерело повідомлення.",
   "errorCouldNotOpenLink": "Не вдалося відкрити посилання: {url}",
   "errorCouldNotOpenLinkTitle": "Неможливо відкрити посилання",
   "errorCouldNotShowUserProfile": "Не вдалося показати профіль користувача.",
+  "errorDeleteMessageFailedTitle": "Не вдалося видалити повідомлення",
   "errorDialogContinue": "ОК",
   "errorDialogLearnMore": "Дізнайтися більше",
   "errorDialogTitle": "Помилка",
@@ -1349,7 +1529,8 @@
   "experimentalFeatureSettingsPageTitle": "Експериментальні функції",
   "experimentalFeatureSettingsWarning": "Ці опції вмикають функції, які ще розробляються та не готові. Вони можуть не працювати та викликати проблеми в інших місцях додатку.\n\nМетою цих налаштувань є експериментування людьми, що працюють над розробкою Zulip.",
   "filenameAndSizeInMiB": "{filename}: {size} MiB",
-  "inboxEmptyPlaceholder": "Немає непрочитаних вхідних повідомлень. Використовуйте кнопки знизу для перегляду обʼєднаної стрічки або списку каналів.",
+  "inboxEmptyPlaceholderHeader": "У вашій папці \"Вхідні\" немає непрочитаних повідомлень.",
+  "inboxEmptyPlaceholderMessage": "Скористайтеся кнопками нижче, щоб переглянути об’єднану стрічку або список каналів.",
   "inboxPageTitle": "Вхідні",
   "initialAnchorSettingDescription": "Можна відкривати стрічку повідомлень на першому непрочитаному повідомленні або на найновішому.",
   "initialAnchorSettingFirstUnreadAlways": "Перше непрочитане повідомлення",
@@ -1371,12 +1552,17 @@
   "loginFormSubmitLabel": "Увійти",
   "loginHidePassword": "Приховати пароль",
   "loginMethodDivider": "АБО",
+  "loginMethodDividerSemanticLabel": "Альтернативні способи входу",
   "loginPageTitle": "Увійти",
   "loginPasswordLabel": "Пароль",
   "loginServerUrlLabel": "URL-адреса вашого сервера Zulip",
   "loginUsernameLabel": "Ім'я користувача",
   "mainMenuMyProfile": "Мій профіль",
   "manyPeopleTyping": "Кілька людей друкують…",
+  "markAllAsReadConfirmationDialogConfirmButton": "Позначити як прочитане",
+  "markAllAsReadConfirmationDialogMessage": "Це може вплинути на повідомлення в кількох розмовах.",
+  "markAllAsReadConfirmationDialogTitle": "{count, plural, =1{Позначити {count}+ повідомлень як прочитані?} other{Позначити {count}+ повідомлень як прочитані?}}",
+  "markAllAsReadConfirmationDialogTitleNoCount": "Позначити повідомлення як прочитані?",
   "markAllAsReadLabel": "Позначити всі повідомлення як прочитані",
   "markAsReadComplete": "Позначено як прочитані {num, plural, =1{1 повідомлення} other{{num} повідомлення}}.",
   "markAsReadInProgress": "Позначення повідомлень як прочитаних…",
@@ -1395,6 +1581,8 @@
   "messageListGroupYouWithYourself": "Повідомлення з собою",
   "messageNotSentLabel": "ПОВІДОМЛЕННЯ НЕ ВІДПРАВЛЕНО",
   "mutedUser": "Заглушений користувач",
+  "navBarMenuLabel": "Меню",
+  "navButtonAllChannels": "Усі канали",
   "newDmFabButtonLabel": "Нове особисте повідомлення",
   "newDmSheetComposeButtonLabel": "Написати",
   "newDmSheetNoUsersFound": "Користувачі не знайдені",
@@ -1421,7 +1609,8 @@
   "reactionChipLabel": "{emojiName}: {votes}",
   "reactionChipVotesYouAndOthers": "{otherUsersCount, plural, =1{Ви та ще 1 особа} other{Ви і {otherUsersCount} інші}}",
   "reactionChipsLabel": "Реакції",
-  "recentDmConversationsEmptyPlaceholder": "У вас поки що немає особистих повідомлень! Чому б не розпочати бесіду?",
+  "recentDmConversationsEmptyPlaceholderHeader": "У вас ще немає прямих повідомлень!",
+  "recentDmConversationsEmptyPlaceholderMessage": "Чому б не почати розмову?",
   "recentDmConversationsPageTitle": "Особисті повідомлення",
   "recentDmConversationsSectionHeader": "Особисті повідомлення",
   "revealButtonLabel": "Показати повідомлення",
@@ -1441,7 +1630,7 @@
   "serverUrlValidationErrorUnsupportedScheme": "URL-адреса сервера має починатися з http:// або https://.",
   "setStatusPageTitle": "Встановити статус",
   "settingsPageTitle": "Налаштування",
-  "sharePageTitle": "Поділитися",
+  "shareChooseAccountModalTitle": "Виберіть обліковий запис",
   "signInWithFoo": "Увійти з {method}",
   "snackBarDetails": "Деталі",
   "spoilerDefaultHeaderText": "Спойлер",
@@ -1457,14 +1646,15 @@
   "successMessageLinkCopied": "Посилання на повідомлення скопійовано",
   "successMessageTextCopied": "Текст повідомлення скопійовано",
   "successTopicLinkCopied": "Посилання на тему скопійовано",
-  "switchAccountButton": "Змінити обліковий запис",
+  "switchAccountButtonTooltip": "Змінити обліковий запис",
   "themeSettingDark": "Темна",
   "themeSettingLight": "Світла",
   "themeSettingSystem": "Системна",
   "themeSettingTitle": "ТЕМА",
   "today": "Сьогодні",
+  "topicListEmptyPlaceholderHeader": "Тут ще немає тем.",
   "topicValidationErrorMandatoryButEmpty": "Теми обовʼязкові в цій організації.",
-  "topicValidationErrorTooLong": "Довжина теми не повинна перевищувати 60 символів.",
+  "topicValidationErrorTooLong": "Довжина теми не повинна перевищувати {maxLength, plural, =1{1 символ} other{{maxLength} символів}}.",
   "topicsButtonTooltip": "Теми",
   "tryAnotherAccountButton": "Спробуйте інший обліковий запис",
   "tryAnotherAccountMessage": "Ваш обліковий запис на {url} завантажується деякий час.",
@@ -1475,7 +1665,7 @@
   "unknownUserName": "(невідомий користувач)",
   "unpinnedSubscriptionsLabel": "Відкріплені",
   "unsubscribeConfirmationDialogConfirmButton": "Скасувати підписку",
-  "unsubscribeConfirmationDialogMessageMaybeCannotResubscribe": "Після того, як ви залишите цей канал, ви, можливо, не зможете приєднатися знову.",
+  "unsubscribeConfirmationDialogMessageCannotResubscribe": "Після того, як ви покинете цей канал, ви не зможете приєднатися знову.",
   "unsubscribeConfirmationDialogTitle": "Відписатися від {channelName}?",
   "unsubscribeFailedTitle": "Не вдалося скасувати підписку",
   "updateStatusErrorTitle": "Помилка оновлення статусу користувача. Спробуйте ще раз.",

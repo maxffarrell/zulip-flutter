@@ -10,6 +10,7 @@ import 'package:zulip/model/narrow.dart';
 import 'package:zulip/model/store.dart';
 import 'package:zulip/widgets/home.dart';
 import 'package:zulip/widgets/icons.dart';
+import 'package:zulip/widgets/image.dart';
 import 'package:zulip/widgets/message_list.dart';
 import 'package:zulip/widgets/new_dm_sheet.dart';
 import 'package:zulip/widgets/page.dart';
@@ -58,7 +59,7 @@ Future<void> setupPage(WidgetTester tester, {
 
   // Switch to direct messages tab.
   await tester.tap(find.descendant(
-    of: find.byType(Center),
+    of: find.byType(DecoratedBox),
     matching: find.byIcon(ZulipIcons.two_person)));
   await tester.pump();
 }
@@ -73,8 +74,8 @@ void main() {
   group('RecentDmConversationsPage', () {
     testWidgets('appearance when empty', (tester) async {
       await setupPage(tester, users: [], dmMessages: []);
-      check(find.text('You have no direct messages yet! Why not start the conversation?'))
-        .findsOne();
+      check(find.text('You have no direct messages yet!')).findsOne();
+      check(find.text('Why not start a conversation?')).findsOne();
     });
 
     testWidgets('page builds; conversations appear in order', (tester) async {
@@ -189,7 +190,7 @@ void main() {
           matching: find.byType(UserStatusEmoji));
         check(statusEmojiFinder).findsOne();
         check(tester.widget<UserStatusEmoji>(statusEmojiFinder)
-          .neverAnimate).isTrue();
+          .animationMode).equals(ImageAnimationMode.animateNever);
         check(find.ancestor(of: statusEmojiFinder,
           matching: find.byType(RecentDmConversationsItem))).findsOne();
       }

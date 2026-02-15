@@ -15,8 +15,8 @@ import 'package:zulip/model/localizations.dart';
 import 'package:zulip/model/narrow.dart';
 import 'package:zulip/model/store.dart';
 import 'package:zulip/widgets/button.dart';
-import 'package:zulip/widgets/content.dart';
 import 'package:zulip/widgets/icons.dart';
+import 'package:zulip/widgets/image.dart';
 import 'package:zulip/widgets/message_list.dart';
 import 'package:zulip/widgets/page.dart';
 import 'package:zulip/widgets/remote_settings.dart';
@@ -469,7 +469,7 @@ void main() {
         matching: find.byType(UserStatusEmoji));
       check(statusEmojiFinder).findsOne();
       check(tester.widget<UserStatusEmoji>(statusEmojiFinder)
-        .neverAnimate).isFalse();
+        .animationMode).equals(ImageAnimationMode.animateConditionally);
       check(find.text('Busy')).findsOne();
     });
 
@@ -495,7 +495,7 @@ void main() {
         check(statusButtonFinder).findsOne();
         check(statusEmojiFinder).findsOne();
         check(tester.widget<UserStatusEmoji>(statusEmojiFinder)
-          .neverAnimate).isFalse();
+          .animationMode).equals(ImageAnimationMode.animateConditionally);
         check(statusTextFinder).findsOne();
 
         check(find.descendant(of: statusButtonFinder,

@@ -41,7 +41,7 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
   String get settingsPageTitle => 'Einstellungen';
 
   @override
-  String get switchAccountButton => 'Konto wechseln';
+  String get switchAccountButtonTooltip => 'Konto wechseln';
 
   @override
   String tryAnotherAccountMessage(Object url) {
@@ -66,6 +66,16 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
 
   @override
   String get chooseAccountButtonAddAnAccount => 'Account hinzufügen';
+
+  @override
+  String get navButtonAllChannels => 'Alle Kanäle';
+
+  @override
+  String get allChannelsPageTitle => 'Alle Kanäle';
+
+  @override
+  String get allChannelsEmptyPlaceholderHeader =>
+      'Es gibt keine Kanäle, die du in dieser Organisation anzeigen könntest.';
 
   @override
   String get profileButtonSendDirectMessage => 'Direktnachricht senden';
@@ -105,7 +115,7 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
   String get actionSheetOptionListOfTopics => 'Themenliste';
 
   @override
-  String get actionSheetOptionChannelFeed => 'Channel feed';
+  String get actionSheetOptionChannelFeed => 'Kanal-Feed';
 
   @override
   String get actionSheetOptionUnsubscribe => 'Deabonnieren';
@@ -116,14 +126,26 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
   }
 
   @override
-  String get unsubscribeConfirmationDialogMessageMaybeCannotResubscribe =>
-      'Wenn du diesen Kanal verlässt, kannst du sich vielleicht nicht wieder beitreten.';
+  String get unsubscribeConfirmationDialogMessageCannotResubscribe =>
+      'Sobald du diesen Kanal verlässt, kannst du ihm nicht mehr beitreten.';
 
   @override
   String get unsubscribeConfirmationDialogConfirmButton => 'Deabonnieren';
 
   @override
   String get unsubscribeFailedTitle => 'Konnte nicht deabonnieren';
+
+  @override
+  String get actionSheetOptionPinChannel => 'Pin to top';
+
+  @override
+  String get actionSheetOptionUnpinChannel => 'Unpin from top';
+
+  @override
+  String get errorPinChannelFailedTitle => 'Failed to pin channel';
+
+  @override
+  String get errorUnpinChannelFailedTitle => 'Failed to unpin channel';
 
   @override
   String get actionSheetOptionMuteTopic => 'Thema stummschalten';
@@ -235,6 +257,23 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
   String get actionSheetOptionEditMessage => 'Nachricht bearbeiten';
 
   @override
+  String get actionSheetOptionDeleteMessage => 'Nachricht löschen';
+
+  @override
+  String get deleteMessageConfirmationDialogTitle => 'Nachricht löschen?';
+
+  @override
+  String get deleteMessageConfirmationDialogMessage =>
+      'Das Löschen einer Nachricht entfernt diese permanent für alle.';
+
+  @override
+  String get deleteMessageConfirmationDialogConfirmButton => 'Löschen';
+
+  @override
+  String get errorDeleteMessageFailedTitle =>
+      'Löschen der Nachricht fehlgeschlagen';
+
+  @override
   String get actionSheetOptionMarkTopicAsRead => 'Thema als gelesen markieren';
 
   @override
@@ -258,6 +297,10 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
   @override
   String get errorCouldNotFetchMessageSource =>
       'Konnte Nachrichtenquelle nicht abrufen.';
+
+  @override
+  String get errorCouldNotAccessUploadedFileTitle =>
+      'Konnte nicht auf die hochgeladene Datei zugreifen';
 
   @override
   String get errorCopyingFailed => 'Kopieren fehlgeschlagen';
@@ -408,12 +451,34 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
   String get successChannelLinkCopied => 'Kanallink kopiert';
 
   @override
-  String get errorBannerDeactivatedDmLabel =>
-      'Du kannst keine Nachrichten an deaktivierte Nutzer:innen senden.';
+  String get composeBoxBannerLabelDeactivatedDmRecipient =>
+      'Du kannst keine Nachrichten an deaktivierte Nutzer senden.';
 
   @override
-  String get errorBannerCannotPostInChannelLabel =>
+  String get composeBoxBannerLabelUnknownDmRecipient =>
+      'You cannot send messages to unknown users.';
+
+  @override
+  String get composeBoxBannerLabelCannotSendUnspecifiedReason =>
+      'You cannot send messages here.';
+
+  @override
+  String get composeBoxBannerLabelCannotSendInChannel =>
       'Du hast keine Berechtigung in diesen Kanal zu schreiben.';
+
+  @override
+  String get composeBoxBannerLabelUnsubscribed =>
+      'Replies to your messages will not appear automatically.';
+
+  @override
+  String get composeBoxBannerLabelUnsubscribedWhenCannotSend =>
+      'Neue Nachrichten werden nicht automatisch angezeigt.';
+
+  @override
+  String get composeBoxBannerButtonRefresh => 'Auffrischen';
+
+  @override
+  String get composeBoxBannerButtonSubscribe => 'Abonnieren';
 
   @override
   String get composeBoxBannerLabelEditMessage => 'Nachricht bearbeiten';
@@ -475,14 +540,13 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
 
   @override
   String get newDmSheetSearchHintEmpty =>
-      'Füge ein oder mehrere Nutzer:innen hinzu';
+      'Füge einen oder mehrere Nutzer hinzu';
 
   @override
-  String get newDmSheetSearchHintSomeSelected =>
-      'Füge weitere Nutzer:in hinzu…';
+  String get newDmSheetSearchHintSomeSelected => 'Füge weitere Nutzer hinzu…';
 
   @override
-  String get newDmSheetNoUsersFound => 'Keine Nutzer:innen gefunden';
+  String get newDmSheetNoUsersFound => 'Keine Nutzer gefunden';
 
   @override
   String composeBoxDmContentHint(String user) {
@@ -493,7 +557,7 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
   String get composeBoxGroupDmContentHint => 'Nachricht an Gruppe';
 
   @override
-  String get composeBoxSelfDmContentHint => 'Schreibe etwas';
+  String get composeBoxSelfDmContentHint => 'Schreibe dir selbst eine Notiz';
 
   @override
   String composeBoxChannelContentHint(String destination) {
@@ -528,7 +592,7 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
   }
 
   @override
-  String get unknownUserName => '(Nutzer:in unbekannt)';
+  String get unknownUserName => '(unbekannter Nutzer)';
 
   @override
   String get dmsWithYourselfPageTitle => 'DNs mit dir selbst';
@@ -545,6 +609,69 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
 
   @override
   String get emptyMessageList => 'Hier gibt es keine Nachrichten.';
+
+  @override
+  String get emptyMessageListCombinedFeed =>
+      'Es befinden sich keine Nachrichten in deinem gesammelten Feed.';
+
+  @override
+  String get emptyMessageListChannelWithoutContentAccess =>
+      'Du hast keinen <z-link>Inhaltszugriff</z-link> zu diesem Kanal.';
+
+  @override
+  String get emptyMessageListChannelUnavailable =>
+      'Entweder existiert dieser Kanal nicht oder du bist nicht berechtigt, ihn anzusehen.';
+
+  @override
+  String get emptyMessageListSelfDmHeader =>
+      'Bisher hast du keine Direktnachrichten an dich selbst geschickt!';
+
+  @override
+  String get emptyMessageListSelfDmMessage =>
+      'Nutze diesen Bereich für persönliche Notizen oder um neue Features von Zulip zu testen.';
+
+  @override
+  String emptyMessageListDm(String person) {
+    return 'Du hast noch keine Direktnachrichten mit $person ausgetauscht.';
+  }
+
+  @override
+  String emptyMessageListDmDeactivatedUser(String person) {
+    return 'Du hast keine Direktnachrichten mit $person ausgetauscht.';
+  }
+
+  @override
+  String get emptyMessageListDmUnknownUser =>
+      'Du hast noch keine Nachrichten mit diesem Nutzer ausgetauscht.';
+
+  @override
+  String get emptyMessageListGroupDm =>
+      'Du hast noch keine Direktnachrichten mit diesem Nutzer ausgetauscht.';
+
+  @override
+  String get emptyMessageListGroupDmDeactivatedUser =>
+      'Du hast keine Direktnachrichten mit diesem Nutzer.';
+
+  @override
+  String get emptyMessageListDmStartConversation =>
+      'Warum beginnst du nicht einfach eine Konversation?';
+
+  @override
+  String get emptyMessageListMentionsHeader =>
+      'In dieser Ansicht werden Nachrichten angeführt, in denen du <z-link>erwähnt</z-link> worden bist.';
+
+  @override
+  String get emptyMessageListMentionsMessage =>
+      'Um auf eine Nachricht hinzuweisen, kannst du einen Nutzer, eine Gruppe, die Teilnehmer an diesem Thema oder alle Abonnenten eines Kanals erwähnen. Tippe @ ins Nachrichtenfeld und wähle aus den Vorschlägen, wen du gern erwähnen möchtest.';
+
+  @override
+  String get emptyMessageListStarredHeader =>
+      'Du hast noch keine Nachrichten markiert.';
+
+  @override
+  String emptyMessageListStarredMessage(String button) {
+    return '<z-link>Markieren</z-link> ist eine gute Möglichkeit, wichtige Nachrichten wie Aufgaben, die du später erledigen möchtest, oder nützliche Referenzen nicht zu verlieren. Um eine Nachricht zu markieren, tippe sie lange an und tippe danach auf \"$button\".';
+  }
 
   @override
   String get emptyMessageListSearch => 'Keine Suchergebnisse.';
@@ -607,6 +734,10 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
   String get loginMethodDivider => 'ODER';
 
   @override
+  String get loginMethodDividerSemanticLabel =>
+      'Alternative Möglichkeiten zum Einloggen';
+
+  @override
   String signInWithFoo(String method) {
     return 'Anmelden mit $method';
   }
@@ -639,8 +770,15 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
   String get loginErrorMissingUsername => 'Bitte gib deinen Benutzernamen ein.';
 
   @override
-  String get topicValidationErrorTooLong =>
-      'Länge des Themas sollte 60 Zeichen nicht überschreiten.';
+  String topicValidationErrorTooLong(int maxLength) {
+    String _temp0 = intl.Intl.pluralLogic(
+      maxLength,
+      locale: localeName,
+      other: '$maxLength Zeichen',
+      one: '1 Zeichen',
+    );
+    return 'Länge des Themas sollte $_temp0 nicht überschreiten.';
+  }
 
   @override
   String get topicValidationErrorMandatoryButEmpty =>
@@ -750,6 +888,28 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
   @override
   String get errorMarkAsUnreadFailedTitle =>
       'Als ungelesen markieren fehlgeschlagen';
+
+  @override
+  String markAllAsReadConfirmationDialogTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Mark $count+ messages as read?',
+      one: 'Mark $count+ messages as read?',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get markAllAsReadConfirmationDialogTitleNoCount =>
+      'Mark messages as read?';
+
+  @override
+  String get markAllAsReadConfirmationDialogMessage =>
+      'Messages in multiple conversations may be affected.';
+
+  @override
+  String get markAllAsReadConfirmationDialogConfirmButton => 'Mark as read';
 
   @override
   String get today => 'Heute';
@@ -895,8 +1055,12 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
   String get inboxPageTitle => 'Eingang';
 
   @override
-  String get inboxEmptyPlaceholder =>
-      'Es sind keine ungelesenen Nachrichten in deinem Eingang. Verwende die Buttons unten, um den kombinierten Feed oder die Kanalliste anzusehen.';
+  String get inboxEmptyPlaceholderHeader =>
+      'Es gibt keine ungelesenen Nachrichten in deinem Posteingang.';
+
+  @override
+  String get inboxEmptyPlaceholderMessage =>
+      'Nutze die Buttons unten, um den kombinierten Feed oder die Liste der Kanäle anzuzeigen.';
 
   @override
   String get recentDmConversationsPageTitle => 'Direktnachrichten';
@@ -905,8 +1069,12 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
   String get recentDmConversationsSectionHeader => 'Direktnachrichten';
 
   @override
-  String get recentDmConversationsEmptyPlaceholder =>
-      'Du hast noch keine Direktnachrichten! Warum nicht die Unterhaltung beginnen?';
+  String get recentDmConversationsEmptyPlaceholderHeader =>
+      'Du hast noch keine Direktnachrichten!';
+
+  @override
+  String get recentDmConversationsEmptyPlaceholderMessage =>
+      'Warum beginnst du nicht einfach eine Unterhaltung?';
 
   @override
   String get combinedFeedPageTitle => 'Kombinierter Feed';
@@ -921,10 +1089,16 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
   String get channelsPageTitle => 'Kanäle';
 
   @override
-  String get channelsEmptyPlaceholder => 'Du hast noch keine Kanäle abonniert.';
+  String get channelsEmptyPlaceholderHeader =>
+      'Du hast noch keine Kanäle abonniert.';
 
   @override
-  String get sharePageTitle => 'Teilen';
+  String channelsEmptyPlaceholderMessage(String allChannelsPageTitle) {
+    return 'Versuche, nach <z-link>$allChannelsPageTitle</z-link> zu gehen und einigen davon beizutreten.';
+  }
+
+  @override
+  String get shareChooseAccountModalTitle => 'Wähle ein Konto';
 
   @override
   String get mainMenuMyProfile => 'Mein Profil';
@@ -1016,6 +1190,9 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
 
   @override
   String get wildcardMentionTopicDescription => 'Thema benachrichtigen';
+
+  @override
+  String get navBarMenuLabel => 'Menü';
 
   @override
   String get messageIsEditedLabel => 'BEARBEITET';
@@ -1137,7 +1314,7 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
   String get revealButtonLabel => 'Nachricht anzeigen';
 
   @override
-  String get mutedUser => 'Stummgeschaltete:r Nutzer:in';
+  String get mutedUser => 'Stummgeschalteter Nutzer';
 
   @override
   String get scrollToBottomTooltip => 'Nach unten Scrollen';
@@ -1147,4 +1324,7 @@ class ZulipLocalizationsDe extends ZulipLocalizations {
 
   @override
   String get zulipAppTitle => 'Zulip';
+
+  @override
+  String get topicListEmptyPlaceholderHeader => 'Es gibt noch keine Themen.';
 }

@@ -11,6 +11,9 @@
   "@aboutPageTitle": {
     "description": "Title for About Zulip page."
   },
+  "@actionSheetOptionChannelFeed": {
+    "description": "Label for navigating to a channel's channel-feed page."
+  },
   "@actionSheetOptionCopyChannelLink": {
     "description": "Label for copy channel link button on action sheet."
   },
@@ -22,6 +25,9 @@
   },
   "@actionSheetOptionCopyTopicLink": {
     "description": "Label for copy topic link button in action sheet."
+  },
+  "@actionSheetOptionDeleteMessage": {
+    "description": "Label for the 'Delete message' button in the message action sheet."
   },
   "@actionSheetOptionEditMessage": {
     "description": "Label for the 'Edit message' button in the message action sheet."
@@ -101,14 +107,29 @@
   "@actionSheetReadReceiptsZeroReadCount": {
     "description": "Label in the \"Read receipts\" bottom sheet when no one has read the message."
   },
+  "@allChannelsEmptyPlaceholderHeader": {
+    "description": "Centered text on the 'All channels' page saying that there is no content to show."
+  },
+  "@allChannelsPageTitle": {
+    "description": "Title for the 'All channels' page."
+  },
   "@appVersionUnknownPlaceholder": {
     "description": "Placeholder to show in place of the app version when it is unknown."
   },
   "@channelFeedButtonTooltip": {
     "description": "Tooltip for button to navigate to a given channel's feed"
   },
-  "@channelsEmptyPlaceholder": {
+  "@channelsEmptyPlaceholderHeader": {
     "description": "Centered text on the 'Channels' page saying that there is no content to show."
+  },
+  "@channelsEmptyPlaceholderMessage": {
+    "description": "Centered text on the 'Channels' page saying that there is no content to show, with a link to 'All channels'.",
+    "placeholders": {
+      "allChannelsPageTitle": {
+        "example": "All channels",
+        "type": "String"
+      }
+    }
   },
   "@channelsPageTitle": {
     "description": "Title for the page with a list of subscribed channels."
@@ -137,11 +158,35 @@
   "@composeBoxBannerButtonCancel": {
     "description": "Label text for the 'Cancel' button in the compose-box banner when you are editing a message."
   },
+  "@composeBoxBannerButtonRefresh": {
+    "description": "Label text for the 'Refresh' button in the compose-box banner when you are viewing an unsubscribed channel."
+  },
   "@composeBoxBannerButtonSave": {
     "description": "Label text for the 'Save' button in the compose-box banner when you are editing a message."
   },
+  "@composeBoxBannerButtonSubscribe": {
+    "description": "Label text for the 'Subscribe' button in the compose-box banner when you are viewing an unsubscribed channel."
+  },
+  "@composeBoxBannerLabelCannotSendInChannel": {
+    "description": "Error-banner text replacing the compose box when you do not have permission to send a message to the channel."
+  },
+  "@composeBoxBannerLabelCannotSendUnspecifiedReason": {
+    "description": "Label text for a banner replacing the compose box when you cannot send messages in the channel for an unspecified reason."
+  },
+  "@composeBoxBannerLabelDeactivatedDmRecipient": {
+    "description": "Label text for error banner when sending a message to one or multiple deactivated users."
+  },
   "@composeBoxBannerLabelEditMessage": {
     "description": "Label text for the compose-box banner when you are editing a message."
+  },
+  "@composeBoxBannerLabelUnknownDmRecipient": {
+    "description": "Label text for a banner replacing the compose box when you cannot send messages in the DM conversation because one or more members are unknown."
+  },
+  "@composeBoxBannerLabelUnsubscribed": {
+    "description": "Label text for a compose-box banner when you are viewing an unsubscribed channel."
+  },
+  "@composeBoxBannerLabelUnsubscribedWhenCannotSend": {
+    "description": "Label text for a compose-box banner when you are viewing an unsubscribed channel in which you do not have permission to send messages."
   },
   "@composeBoxChannelContentHint": {
     "description": "Hint text for content input when sending a message to a channel.",
@@ -215,6 +260,15 @@
   "@contentValidationErrorUploadInProgress": {
     "description": "Content validation error message when attachments have not finished uploading."
   },
+  "@deleteMessageConfirmationDialogConfirmButton": {
+    "description": "Label for the 'Delete' button on a confirmation dialog for deleting a message."
+  },
+  "@deleteMessageConfirmationDialogMessage": {
+    "description": "Message for a confirmation dialog for deleting a message."
+  },
+  "@deleteMessageConfirmationDialogTitle": {
+    "description": "Title for a confirmation dialog for deleting a message."
+  },
   "@dialogCancel": {
     "description": "Button label in dialogs to cancel."
   },
@@ -263,8 +317,71 @@
   "@emptyMessageList": {
     "description": "Placeholder for some message-list pages when there are no messages."
   },
+  "@emptyMessageListChannelUnavailable": {
+    "description": "Placeholder for a channel page when there are no messages and the channel does not exist or you don't have access to it."
+  },
+  "@emptyMessageListChannelWithoutContentAccess": {
+    "description": "Placeholder for a channel or topic page when there are no messages and you don’t have content access."
+  },
+  "@emptyMessageListCombinedFeed": {
+    "description": "Placeholder for the 'Combined feed' page when there are no messages."
+  },
+  "@emptyMessageListDm": {
+    "description": "Placeholder for a 1:1 DM page when there are no messages.",
+    "placeholders": {
+      "person": {
+        "example": "Alice",
+        "type": "String"
+      }
+    }
+  },
+  "@emptyMessageListDmDeactivatedUser": {
+    "description": "Placeholder for a 1:1 DM page when there are no messages and the other user is deactivated.",
+    "placeholders": {
+      "person": {
+        "example": "Alice",
+        "type": "String"
+      }
+    }
+  },
+  "@emptyMessageListDmStartConversation": {
+    "description": "Extra detail in the placeholder for some DM pages when there are no messages."
+  },
+  "@emptyMessageListDmUnknownUser": {
+    "description": "Placeholder for a 1:1 DM page when there are no messages and the other user's name is unavailable."
+  },
+  "@emptyMessageListGroupDm": {
+    "description": "Placeholder for a group DM page when there are no messages."
+  },
+  "@emptyMessageListGroupDmDeactivatedUser": {
+    "description": "Placeholder for a group DM page when there are no messages and one or more participants is deactivated."
+  },
+  "@emptyMessageListMentionsHeader": {
+    "description": "Placeholder for the 'Mentions' page when there are no messages."
+  },
+  "@emptyMessageListMentionsMessage": {
+    "description": "Extra detail in the placeholder for the 'Mentions' page when there are no messages."
+  },
   "@emptyMessageListSearch": {
     "description": "Placeholder for the 'Search' page when there are no messages."
+  },
+  "@emptyMessageListSelfDmHeader": {
+    "description": "Placeholder for the self-DM page when there are no messages."
+  },
+  "@emptyMessageListSelfDmMessage": {
+    "description": "Extra detail in the placeholder for the self-DM page when there are no messages."
+  },
+  "@emptyMessageListStarredHeader": {
+    "description": "Placeholder for the 'Starred' page when there are no messages."
+  },
+  "@emptyMessageListStarredMessage": {
+    "description": "Extra detail in the placeholder for the 'Starred' page when there are no messages. The {button} placeholder will be the button's translated text.",
+    "placeholders": {
+      "button": {
+        "example": "Star message",
+        "type": "String"
+      }
+    }
   },
   "@errorAccountLoggedIn": {
     "description": "Error message on attempting to log into an account that's already logged in.",
@@ -281,12 +398,6 @@
   },
   "@errorAccountLoggedInTitle": {
     "description": "Error title on attempting to log into an account that's already logged in."
-  },
-  "@errorBannerCannotPostInChannelLabel": {
-    "description": "Error-banner text replacing the compose box when you do not have permission to send a message to the channel."
-  },
-  "@errorBannerDeactivatedDmLabel": {
-    "description": "Label text for error banner when sending a message to one or multiple deactivated users."
   },
   "@errorConnectingToServerDetails": {
     "description": "Dialog error message for a generic unknown error connecting to the server with details.",
@@ -313,6 +424,9 @@
   "@errorCopyingFailed": {
     "description": "Error message when copying the text of a message to the user's system clipboard failed."
   },
+  "@errorCouldNotAccessUploadedFileTitle": {
+    "description": "Error title on failure in opening a file someone previously uploaded to Zulip"
+  },
   "@errorCouldNotConnectTitle": {
     "description": "Error title when the app could not connect to the server."
   },
@@ -336,6 +450,9 @@
   },
   "@errorCouldNotShowUserProfile": {
     "description": "Message that appears on the user profile page when the profile cannot be shown."
+  },
+  "@errorDeleteMessageFailedTitle": {
+    "description": "Error title when deleting a message failed."
   },
   "@errorDialogContinue": {
     "description": "Button label in error dialogs to acknowledge the error and close the dialog."
@@ -579,8 +696,11 @@
       }
     }
   },
-  "@inboxEmptyPlaceholder": {
+  "@inboxEmptyPlaceholderHeader": {
     "description": "Centered text on the 'Inbox' page saying that there is no content to show."
+  },
+  "@inboxEmptyPlaceholderMessage": {
+    "description": "Additional centered text on the 'Inbox' page saying that there is no content to show."
   },
   "@inboxPageTitle": {
     "description": "Title for the page with unreads."
@@ -645,6 +765,9 @@
   "@loginMethodDivider": {
     "description": "Text on the divider between the username/password form and the third-party login options. Uppercase (for languages with letter case)."
   },
+  "@loginMethodDividerSemanticLabel": {
+    "description": "Semantic label for divider between the username/password form and the third-party login options."
+  },
   "@loginPageTitle": {
     "description": "Title for login page."
   },
@@ -662,6 +785,24 @@
   },
   "@manyPeopleTyping": {
     "description": "Text to display when there are multiple users typing."
+  },
+  "@markAllAsReadConfirmationDialogConfirmButton": {
+    "description": "Label for the 'Mark as read' button on a confirmation dialog for marking all messages as read."
+  },
+  "@markAllAsReadConfirmationDialogMessage": {
+    "description": "Message in the confirmation dialog for marking all messages as read."
+  },
+  "@markAllAsReadConfirmationDialogTitle": {
+    "description": "Title of the confirmation dialog for marking all messages as read. The '+' means 'this many messages or more'.",
+    "placeholders": {
+      "count": {
+        "description": "Minimum number of messages that will be marked as read",
+        "type": "int"
+      }
+    }
+  },
+  "@markAllAsReadConfirmationDialogTitleNoCount": {
+    "description": "Title of the confirmation dialog for marking all messages as read."
   },
   "@markAllAsReadLabel": {
     "description": "Button text to mark messages as read."
@@ -734,6 +875,12 @@
   },
   "@mutedUser": {
     "description": "Name for a muted user to display all over the app."
+  },
+  "@navBarMenuLabel": {
+    "description": "Label for the Menu button on the bottom navigation bar."
+  },
+  "@navButtonAllChannels": {
+    "description": "Title for a nav button that opens the 'All channels' page."
   },
   "@newDmFabButtonLabel": {
     "description": "Label for the floating action button (FAB) that opens the new DM sheet."
@@ -851,8 +998,11 @@
   "@reactionChipsLabel": {
     "description": "Text identifying the container of reaction chips on a message. (An accessibility label for assistive technology.)"
   },
-  "@recentDmConversationsEmptyPlaceholder": {
+  "@recentDmConversationsEmptyPlaceholderHeader": {
     "description": "Centered text on the 'Direct messages' page saying that there is no content to show."
+  },
+  "@recentDmConversationsEmptyPlaceholderMessage": {
+    "description": "Additional centered text on the 'Direct messages' page saying that there is no content to show."
   },
   "@recentDmConversationsPageTitle": {
     "description": "Title for the page with a list of DM conversations."
@@ -934,9 +1084,8 @@
   "@setStatusPageTitle": {
     "description": "Title for the 'Set status' page."
   },
-  "@settingsPageTitle": {},
-  "@sharePageTitle": {
-    "description": "Title for the page about sharing content received from other apps."
+  "@shareChooseAccountModalTitle": {
+    "description": "Title for the modal bottom sheet about selecting an account to share content received from other apps."
   },
   "@signInWithFoo": {
     "description": "Button to use {method} to sign in to the app.",
@@ -989,8 +1138,8 @@
   "@successTopicLinkCopied": {
     "description": "Message when link of a topic was copied to the user's system clipboard."
   },
-  "@switchAccountButton": {
-    "description": "Label for main-menu button leading to the choose-account page."
+  "@switchAccountButtonTooltip": {
+    "description": "Tooltip message for main-menu button leading to the choose-account page."
   },
   "@themeSettingDark": {
     "description": "Label for dark theme setting."
@@ -1006,6 +1155,9 @@
   },
   "@today": {
     "description": "Term to use to reference the current day."
+  },
+  "@topicListEmptyPlaceholderHeader": {
+    "description": "Header text shown when a channel has no topics."
   },
   "@topicValidationErrorMandatoryButEmpty": {
     "description": "Topic validation error when topic is required but was empty."
@@ -1057,8 +1209,8 @@
   "@unsubscribeConfirmationDialogConfirmButton": {
     "description": "Label for the 'Unsubscribe' button on a confirmation dialog for unsubscribing from a channel."
   },
-  "@unsubscribeConfirmationDialogMessageMaybeCannotResubscribe": {
-    "description": "Message for a confirmation dialog for unsubscribing from a channel when you might not have permission to resubscribe."
+  "@unsubscribeConfirmationDialogMessageCannotResubscribe": {
+    "description": "Message for a confirmation dialog for unsubscribing from a channel when you will not have permission to resubscribe."
   },
   "@unsubscribeConfirmationDialogTitle": {
     "description": "Title for a confirmation dialog for unsubscribing from a channel.",
@@ -1211,14 +1363,16 @@
   "aboutPageOpenSourceLicenses": "開源授權條款",
   "aboutPageTapToView": "點選查看",
   "aboutPageTitle": "關於 Zulip",
+  "actionSheetOptionChannelFeed": "頻道動態",
   "actionSheetOptionCopyChannelLink": "複製頻道連結",
   "actionSheetOptionCopyMessageLink": "複製訊息連結",
   "actionSheetOptionCopyMessageText": "複製訊息文字",
-  "actionSheetOptionCopyTopicLink": "複製議題的連結",
+  "actionSheetOptionCopyTopicLink": "複製話題的連結",
+  "actionSheetOptionDeleteMessage": "刪除訊息",
   "actionSheetOptionEditMessage": "編輯訊息",
   "actionSheetOptionFollowTopic": "跟隨話題",
   "actionSheetOptionHideMutedMessage": "再次隱藏已靜音的話題",
-  "actionSheetOptionListOfTopics": "議題列表",
+  "actionSheetOptionListOfTopics": "話題列表",
   "actionSheetOptionMarkAsUnread": "從這裡開始標註為未讀",
   "actionSheetOptionMarkChannelAsRead": "標註頻道為已讀",
   "actionSheetOptionMarkTopicAsRead": "標註話題為已讀",
@@ -1239,34 +1393,48 @@
   "actionSheetReadReceiptsErrorReadCount": "載入已讀回條失敗。",
   "actionSheetReadReceiptsReadCount": "{count, plural, =1{此訊息已被<z-link>閱讀</z-link>，共有 {count} 人：} other{此訊息已被<z-link>閱讀</z-link>，共有 {count} 人：}}",
   "actionSheetReadReceiptsZeroReadCount": "尚無人閱讀此訊息。",
+  "allChannelsEmptyPlaceholderHeader": "在此組織中沒有您可以查看的頻道。",
+  "allChannelsPageTitle": "所有頻道",
   "appVersionUnknownPlaceholder": "(…)",
-  "channelFeedButtonTooltip": "頻道饋給",
-  "channelsEmptyPlaceholder": "您尚未訂閱任何頻道。",
+  "channelFeedButtonTooltip": "頻道動態",
+  "channelsEmptyPlaceholderHeader": "您尚未訂閱任何頻道。",
+  "channelsEmptyPlaceholderMessage": "試著前往 <z-link>{allChannelsPageTitle}</z-link>，加入一些頻道吧。",
   "channelsPageTitle": "頻道",
   "chooseAccountButtonAddAnAccount": "增添帳號",
   "chooseAccountPageLogOutButton": "登出",
   "chooseAccountPageTitle": "選取帳號",
-  "combinedFeedPageTitle": "綜合饋給",
+  "combinedFeedPageTitle": "綜合動態",
   "composeBoxAttachFilesTooltip": "附加檔案",
   "composeBoxAttachFromCameraTooltip": "拍照",
   "composeBoxAttachMediaTooltip": "附加圖片或影片",
   "composeBoxBannerButtonCancel": "取消",
+  "composeBoxBannerButtonRefresh": "重新整理",
   "composeBoxBannerButtonSave": "儲存",
+  "composeBoxBannerButtonSubscribe": "訂閱",
+  "composeBoxBannerLabelCannotSendInChannel": "您沒有權限在此頻道發佈訊息。",
+  "composeBoxBannerLabelCannotSendUnspecifiedReason": "您無法在此傳送訊息。",
+  "composeBoxBannerLabelDeactivatedDmRecipient": "您無法向已停用的使用者發送訊息。",
   "composeBoxBannerLabelEditMessage": "編輯訊息",
+  "composeBoxBannerLabelUnknownDmRecipient": "您無法傳送訊息給未知的使用者。",
+  "composeBoxBannerLabelUnsubscribed": "對您訊息的回覆，不會自動顯示。",
+  "composeBoxBannerLabelUnsubscribedWhenCannotSend": "新訊息將不會自動顯示。",
   "composeBoxChannelContentHint": "訊息 {destination}",
   "composeBoxDmContentHint": "訊息 @{user}",
-  "composeBoxEnterTopicOrSkipHintText": "輸入議題（留空則使用「{defaultTopicName}」）",
+  "composeBoxEnterTopicOrSkipHintText": "輸入話題（留空則使用「{defaultTopicName}」）",
   "composeBoxGenericContentHint": "輸入訊息",
   "composeBoxGroupDmContentHint": "訊息群組",
   "composeBoxLoadingMessage": "(載入訊息 {messageId} 中)",
-  "composeBoxSelfDmContentHint": "記下些什麼",
+  "composeBoxSelfDmContentHint": "寫給自己的備忘",
   "composeBoxSendTooltip": "發送",
-  "composeBoxTopicHintText": "議題",
+  "composeBoxTopicHintText": "話題",
   "composeBoxUploadingFilename": "正在上傳 {filename}…",
   "contentValidationErrorEmpty": "您沒有要發送的內容！",
   "contentValidationErrorQuoteAndReplyInProgress": "請等待引述完成。",
   "contentValidationErrorTooLong": "訊息長度不應超過 10000 個字元。",
   "contentValidationErrorUploadInProgress": "請等待上傳完成。",
+  "deleteMessageConfirmationDialogConfirmButton": "刪除",
+  "deleteMessageConfirmationDialogMessage": "刪除訊息將為所有人永久移除該訊息。",
+  "deleteMessageConfirmationDialogTitle": "刪除訊息？",
   "dialogCancel": "取消",
   "dialogClose": "關閉",
   "dialogContinue": "繼續",
@@ -1281,22 +1449,37 @@
   "emojiPickerSearchEmoji": "搜尋表情符號",
   "emojiReactionsMore": "更多",
   "emptyMessageList": "這裡沒有訊息。",
+  "emptyMessageListChannelUnavailable": "此頻道不存在，或者您沒有權限查看。",
+  "emptyMessageListChannelWithoutContentAccess": "您沒有此頻道的 <z-link>內容存取權限</z-link>。",
+  "emptyMessageListCombinedFeed": "您的綜合動態中沒有任何訊息。",
+  "emptyMessageListDm": "您尚未與 {person} 有私人訊息。",
+  "emptyMessageListDmDeactivatedUser": "您沒有與 {person} 的私人訊息。",
+  "emptyMessageListDmStartConversation": "何不開始這段對話呢？",
+  "emptyMessageListDmUnknownUser": "您尚未與這位使用者有任何私人訊息。",
+  "emptyMessageListGroupDm": "您尚未與這些使用者有任何私人訊息。",
+  "emptyMessageListGroupDmDeactivatedUser": "您沒有與這些使用者的私人訊息。",
+  "emptyMessageListMentionsHeader": "此檢視將顯示您被 <z-link>提及</z-link> 的訊息。",
+  "emptyMessageListMentionsMessage": "若要吸引對某則訊息的注意，您可以「提及」一位使用者、一個群組、議題參與者，或是頻道的所有訂閱者。在撰寫框輸入 @，並從建議清單中選擇您想「提及」的人。",
   "emptyMessageListSearch": "沒有搜尋結果。",
+  "emptyMessageListSelfDmHeader": "您尚未傳送任何私人訊息給自己！",
+  "emptyMessageListSelfDmMessage": "使用此空間記錄個人筆記，或測試 Zulip 功能。",
+  "emptyMessageListStarredHeader": "您沒有任何星號標記訊息。",
+  "emptyMessageListStarredMessage": "<z-link>星號標記</z-link>是追蹤重要訊息的好方法，例如您需要回頭處理的工作，或是實用的參考資料。若要將訊息加入星號，請長按訊息並點擊「{button}」",
   "errorAccountLoggedIn": "在 {server} 的帳號 {email} 已經存在帳號清單中。",
   "errorAccountLoggedInTitle": "帳號已經登入了",
-  "errorBannerCannotPostInChannelLabel": "您沒有權限在此頻道發佈訊息。",
-  "errorBannerDeactivatedDmLabel": "您無法向已停用的使用者發送訊息。",
   "errorConnectingToServerDetails": "連接 Zulip {serverUrl} 時發生錯誤。將重試：\n\n{error}",
   "errorConnectingToServerShort": "連接 Zulip 時發生錯誤。重試中…",
   "errorContentNotInsertedTitle": "未插入內容",
   "errorContentToInsertIsEmpty": "要插入的檔案為空或無法存取。",
   "errorCopyingFailed": "複製失敗",
+  "errorCouldNotAccessUploadedFileTitle": "無法存取上傳的檔案",
   "errorCouldNotConnectTitle": "無法連線",
   "errorCouldNotEditMessageTitle": "無法編輯訊息",
   "errorCouldNotFetchMessageSource": "無法取得訊息來源。",
   "errorCouldNotOpenLink": "無法開啟連結: {url}",
   "errorCouldNotOpenLinkTitle": "無法開啟連結",
   "errorCouldNotShowUserProfile": "無法顯示使用者設定檔。",
+  "errorDeleteMessageFailedTitle": "刪除訊息失敗",
   "errorDialogContinue": "OK",
   "errorDialogLearnMore": "了解更多",
   "errorDialogTitle": "錯誤",
@@ -1313,8 +1496,8 @@
   "errorLoginInvalidInputTitle": "無效的輸入",
   "errorMalformedResponse": "伺服器回傳了格式錯誤的回應；HTTP 狀態碼為 {httpStatus}",
   "errorMalformedResponseWithCause": "伺服器回傳了格式錯誤的回應；HTTP 狀態碼為 {httpStatus}；{details}",
-  "errorMarkAsReadFailedTitle": "標記為已讀失敗",
-  "errorMarkAsUnreadFailedTitle": "標記為未讀失敗",
+  "errorMarkAsReadFailedTitle": "標註為已讀失敗",
+  "errorMarkAsUnreadFailedTitle": "標註為未讀失敗",
   "errorMessageDoesNotSeemToExist": "該訊息似乎不存在。",
   "errorMessageEditNotSaved": "訊息沒有儲存",
   "errorMessageNotSent": "訊息沒有送出",
@@ -1343,13 +1526,14 @@
   "experimentalFeatureSettingsPageTitle": "實驗性功能",
   "experimentalFeatureSettingsWarning": "這些選項啟用的功能仍在開發中，尚未完善。它們可能無法正常運作，且可能導致應用程式其他部分出現問題。\n\n這些設定的目的是供參與 Zulip 開發的人員進行試驗使用。",
   "filenameAndSizeInMiB": "{filename}： {size} MiB",
-  "inboxEmptyPlaceholder": "您的收件匣中沒有未讀訊息。請使用下方按鈕查看整合訊息流或頻道清單。",
+  "inboxEmptyPlaceholderHeader": "您的收件匣中沒有未讀訊息。",
+  "inboxEmptyPlaceholderMessage": "請使用下方按鈕查看綜合動態或頻道清單。",
   "inboxPageTitle": "收件匣",
-  "initialAnchorSettingDescription": "您可以選擇將訊息串開啟在第一則未讀訊息，或是最新的訊息。",
+  "initialAnchorSettingDescription": "您可以選擇將訊息動態開啟在第一則未讀訊息，或是最新的訊息。",
   "initialAnchorSettingFirstUnreadAlways": "第一則未讀訊息",
   "initialAnchorSettingFirstUnreadConversations": "在對話檢視中開啟第一則未讀訊息，其餘情況則開啟最新訊息",
   "initialAnchorSettingNewestAlways": "最新訊息",
-  "initialAnchorSettingTitle": "開啟訊息串於",
+  "initialAnchorSettingTitle": "開啟訊息動態於",
   "invisibleMode": "隱身模式",
   "lightboxCopyLinkTooltip": "複製連結",
   "lightboxVideoCurrentPosition": "目前位置",
@@ -1365,23 +1549,28 @@
   "loginFormSubmitLabel": "登入",
   "loginHidePassword": "隱藏密碼",
   "loginMethodDivider": "或",
+  "loginMethodDividerSemanticLabel": "其他登入方式",
   "loginPageTitle": "登入",
   "loginPasswordLabel": "密碼",
   "loginServerUrlLabel": "您的 Zulip 伺服器網址",
   "loginUsernameLabel": "使用者名稱",
   "mainMenuMyProfile": "我的設定檔",
   "manyPeopleTyping": "有些人正在輸入…",
+  "markAllAsReadConfirmationDialogConfirmButton": "標註為已讀",
+  "markAllAsReadConfirmationDialogMessage": "多個對話中的訊息可能會受到影響。",
+  "markAllAsReadConfirmationDialogTitle": "{count, plural, =1{將 {count}+ 則訊息標註為已讀？} other{將 {count}+ 則訊息標註為已讀？}}",
+  "markAllAsReadConfirmationDialogTitleNoCount": "將訊息標註為已讀？",
   "markAllAsReadLabel": "標註所有訊息為已讀",
   "markAsReadComplete": "已標為已讀：{num, plural, =1{1 則訊息} other{{num} 則訊息}}。",
-  "markAsReadInProgress": "正在標記訊息為已讀…",
+  "markAsReadInProgress": "正在標註訊息為已讀…",
   "markAsUnreadComplete": "已標為未讀：{num, plural, =1{1 則訊息} other{{num} 則訊息}}。",
   "markAsUnreadInProgress": "正在標註訊息為未讀…",
   "markReadOnScrollSettingAlways": "總是",
   "markReadOnScrollSettingConversations": "僅在對話檢視中",
-  "markReadOnScrollSettingConversationsDescription": "只有在查看單一議題或私人訊息對話時，訊息才會自動標記為已讀。",
-  "markReadOnScrollSettingDescription": "在捲動瀏覽訊息時，是否要自動將其標記為已讀？",
+  "markReadOnScrollSettingConversationsDescription": "只有在查看單一話題或私人訊息對話時，訊息才會自動標註為已讀。",
+  "markReadOnScrollSettingDescription": "在捲動瀏覽訊息時，是否要自動將其標註為已讀？",
   "markReadOnScrollSettingNever": "從不",
-  "markReadOnScrollSettingTitle": "捲動時將訊息標記為已讀",
+  "markReadOnScrollSettingTitle": "捲動時將訊息標註為已讀",
   "mentionsPageTitle": "提及",
   "messageIsEditedLabel": "已編輯",
   "messageIsMovedLabel": "已移動",
@@ -1389,6 +1578,8 @@
   "messageListGroupYouWithYourself": "與自己的訊息",
   "messageNotSentLabel": "訊息未送出",
   "mutedUser": "已靜音的使用者",
+  "navBarMenuLabel": "功能表",
+  "navButtonAllChannels": "所有頻道",
   "newDmFabButtonLabel": "新增私訊",
   "newDmSheetComposeButtonLabel": "編寫",
   "newDmSheetNoUsersFound": "找不到使用者",
@@ -1415,7 +1606,8 @@
   "reactionChipLabel": "{emojiName}： {votes}",
   "reactionChipVotesYouAndOthers": "{otherUsersCount, plural, =1 {你與其他 1 人} other {你與其他 {otherUsersCount} 人}}",
   "reactionChipsLabel": "反應",
-  "recentDmConversationsEmptyPlaceholder": "您尚未有任何私人訊息！不如開始一段對話吧？",
+  "recentDmConversationsEmptyPlaceholderHeader": "您尚未有任何私人訊息！",
+  "recentDmConversationsEmptyPlaceholderMessage": "要不要開始一段對話呢？",
   "recentDmConversationsPageTitle": "私人訊息",
   "recentDmConversationsSectionHeader": "私人訊息",
   "revealButtonLabel": "顯示訊息",
@@ -1435,7 +1627,7 @@
   "serverUrlValidationErrorUnsupportedScheme": "伺服器 URL 必須以 http:// 或 https:// 開頭。",
   "setStatusPageTitle": "設定狀態",
   "settingsPageTitle": "設定",
-  "sharePageTitle": "分享",
+  "shareChooseAccountModalTitle": "選擇帳號",
   "signInWithFoo": "使用 {method} 登入",
   "snackBarDetails": "詳細資訊",
   "spoilerDefaultHeaderText": "劇透",
@@ -1450,15 +1642,16 @@
   "successLinkCopied": "已複製連結",
   "successMessageLinkCopied": "已複製訊息連結",
   "successMessageTextCopied": "已複製訊息文字",
-  "successTopicLinkCopied": "議題連結已複製",
-  "switchAccountButton": "切換帳號",
+  "successTopicLinkCopied": "話題連結已複製",
+  "switchAccountButtonTooltip": "切換帳號",
   "themeSettingDark": "深色主題",
   "themeSettingLight": "淺色主題",
   "themeSettingSystem": "系統主題",
   "themeSettingTitle": "主題",
   "today": "今天",
-  "topicValidationErrorMandatoryButEmpty": "此組織要求必須填寫議題。",
-  "topicValidationErrorTooLong": "議題長度不得超過 60 個字元。",
+  "topicListEmptyPlaceholderHeader": "這裡還沒有任何話題。",
+  "topicValidationErrorMandatoryButEmpty": "該組織要求必須填寫話題。",
+  "topicValidationErrorTooLong": "{maxLength, plural, =1{議題長度不能超過 1 個字元。} other{議題長度不能超過 {maxLength} 個字元。}}。",
   "topicsButtonTooltip": "話題",
   "tryAnotherAccountButton": "請嘗試別的帳號",
   "tryAnotherAccountMessage": "您在 {url} 的帳號載入的比較久。",
@@ -1469,7 +1662,7 @@
   "unknownUserName": "(未知使用者)",
   "unpinnedSubscriptionsLabel": "未釘選",
   "unsubscribeConfirmationDialogConfirmButton": "取消訂閱",
-  "unsubscribeConfirmationDialogMessageMaybeCannotResubscribe": "一旦您離開此頻道，可能無法重新加入。",
+  "unsubscribeConfirmationDialogMessageCannotResubscribe": "一旦您離開此頻道，將無法重新加入。",
   "unsubscribeConfirmationDialogTitle": "確定要取消訂閱 {channelName} 嗎？",
   "unsubscribeFailedTitle": "取消訂閱失敗",
   "updateStatusErrorTitle": "更新使用者狀態時發生錯誤。請再試一次。",
@@ -1505,7 +1698,7 @@
   "wildcardMentionEveryone": "所有人",
   "wildcardMentionStream": "串流",
   "wildcardMentionStreamDescription": "通知串流",
-  "wildcardMentionTopic": "議題",
+  "wildcardMentionTopic": "話題",
   "wildcardMentionTopicDescription": "通知話題",
   "yesterday": "昨天",
   "zulipAppTitle": "Zulip"

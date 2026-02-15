@@ -24,6 +24,10 @@ class InitialSnapshot {
 
   final List<CustomProfileField> customProfileFields;
 
+  @JsonKey(name: 'max_stream_name_length')
+  final int maxChannelNameLength;
+  final int maxTopicLength;
+
   final int serverPresencePingIntervalSeconds;
   final int serverPresenceOfflineThresholdSeconds;
 
@@ -34,8 +38,6 @@ class InitialSnapshot {
   final int serverTypingStoppedWaitPeriodMilliseconds;
   @JsonKey(defaultValue: 10000)
   final int serverTypingStartedWaitPeriodMilliseconds;
-
-  // final List<…> mutedTopics; // TODO(#422) we ignore this feature on older servers
 
   final List<MutedUserItem> mutedUsers;
 
@@ -54,7 +56,11 @@ class InitialSnapshot {
 
   final List<Subscription> subscriptions;
 
+  final List<ChannelFolder>? channelFolders; // TODO(server-11)
+
   final UnreadMessagesSnapshot unreadMsgs;
+
+  final List<int> starredMessages;
 
   final List<ZulipStream> streams;
 
@@ -70,7 +76,18 @@ class InitialSnapshot {
 
   final UserSettings userSettings;
 
-  final List<UserTopicItem>? userTopics; // TODO(server-6)
+  final List<UserTopicItem> userTopics;
+
+  final GroupSettingValue? realmCanDeleteAnyMessageGroup; // TODO(server-10)
+
+  final GroupSettingValue? realmCanDeleteOwnMessageGroup; // TODO(server-10)
+
+  /// The policy for who can delete their own messages,
+  /// on supported servers below version 10.
+  ///
+  /// Removed in FL 291, so absent in the current API doc;
+  /// see zulip/zulip@0cd51f2fe.
+  final RealmDeleteOwnMessagePolicy? realmDeleteOwnMessagePolicy; // TODO(server-10)
 
   /// The policy for who can use wildcard mentions in large channels.
   ///
@@ -78,6 +95,8 @@ class InitialSnapshot {
   final RealmWildcardMentionPolicy realmWildcardMentionPolicy;
 
   final bool realmMandatoryTopics;
+
+  final String realmName;
 
   /// The number of days until a user's account is treated as a full member.
   ///
@@ -87,10 +106,14 @@ class InitialSnapshot {
   ///   https://zulip.com/api/roles-and-permissions#determining-if-a-user-is-a-full-member
   final int realmWaitingPeriodThreshold;
 
+  final int? realmMessageContentDeleteLimitSeconds;
+
   final bool realmAllowMessageEditing;
   final int? realmMessageContentEditLimitSeconds;
 
   final bool realmEnableReadReceipts;
+
+  final Uri realmIconUrl;
 
   final bool realmPresenceDisabled;
 
@@ -98,7 +121,10 @@ class InitialSnapshot {
 
   final int maxFileUploadSizeMib;
 
-  final Uri? serverEmojiDataUrl; // TODO(server-6)
+  @JsonKey(defaultValue: []) // TODO(server-9) remove default value
+  final List<ThumbnailFormat> serverThumbnailFormats;
+
+  final Uri serverEmojiDataUrl;
 
   final String? realmEmptyTopicDisplayName; // TODO(server-10)
 
@@ -141,6 +167,8 @@ class InitialSnapshot {
     required this.zulipMergeBase,
     required this.alertWords,
     required this.customProfileFields,
+    required this.maxChannelNameLength,
+    required this.maxTopicLength,
     required this.serverPresencePingIntervalSeconds,
     required this.serverPresenceOfflineThresholdSeconds,
     required this.serverTypingStartedExpiryPeriodMilliseconds,
@@ -153,20 +181,29 @@ class InitialSnapshot {
     required this.recentPrivateConversations,
     required this.savedSnippets,
     required this.subscriptions,
+    required this.channelFolders,
     required this.unreadMsgs,
+    required this.starredMessages,
     required this.streams,
     required this.userStatuses,
     required this.userSettings,
     required this.userTopics,
+    required this.realmCanDeleteAnyMessageGroup,
+    required this.realmCanDeleteOwnMessageGroup,
+    required this.realmDeleteOwnMessagePolicy,
     required this.realmWildcardMentionPolicy,
     required this.realmMandatoryTopics,
+    required this.realmName,
     required this.realmWaitingPeriodThreshold,
+    required this.realmMessageContentDeleteLimitSeconds,
     required this.realmAllowMessageEditing,
     required this.realmMessageContentEditLimitSeconds,
     required this.realmEnableReadReceipts,
+    required this.realmIconUrl,
     required this.realmPresenceDisabled,
     required this.realmDefaultExternalAccounts,
     required this.maxFileUploadSizeMib,
+    required this.serverThumbnailFormats,
     required this.serverEmojiDataUrl,
     required this.realmEmptyTopicDisplayName,
     required this.realmUsers,
@@ -196,6 +233,21 @@ enum RealmWildcardMentionPolicy {
   int? toJson() => apiValue;
 }
 
+@JsonEnum(valueField: 'apiValue')
+enum RealmDeleteOwnMessagePolicy {
+  members(apiValue: 1),
+  admins(apiValue: 2),
+  fullMembers(apiValue: 3),
+  moderators(apiValue: 4),
+  everyone(apiValue: 5);
+
+  const RealmDeleteOwnMessagePolicy({required this.apiValue});
+
+  final int apiValue;
+
+  int toJson() => apiValue;
+}
+
 /// An item in `realm_default_external_accounts`.
 ///
 /// For docs, search for "realm_default_external_accounts:"
@@ -218,6 +270,32 @@ class RealmDefaultExternalAccount {
     _$RealmDefaultExternalAccountFromJson(json);
 
   Map<String, dynamic> toJson() => _$RealmDefaultExternalAccountToJson(this);
+}
+
+/// An item in `server_thumbnail_formats`.
+///
+/// For docs, search for "server_thumbnail_formats:"
+/// in <https://zulip.com/api/register-queue>.
+@JsonSerializable(fieldRename: FieldRename.snake)
+class ThumbnailFormat {
+  ThumbnailFormat({
+    required this.name,
+    required this.maxWidth,
+    required this.maxHeight,
+    required this.animated,
+    required this.format,
+  });
+
+  final String name;
+  final int maxWidth;
+  final int maxHeight;
+  final bool animated;
+  final String format;
+
+  factory ThumbnailFormat.fromJson(Map<String, dynamic> json) =>
+    _$ThumbnailFormatFromJson(json);
+
+  Map<String, dynamic> toJson() => _$ThumbnailFormatToJson(this);
 }
 
 /// An item in `recent_private_conversations`.
@@ -252,7 +330,9 @@ class UserSettings {
   )
   TwentyFourHourTimeMode twentyFourHourTime;
 
-  bool? displayEmojiReactionUsers; // TODO(server-6)
+  bool starredMessageCounts;
+  bool displayEmojiReactionUsers;
+  @JsonKey(unknownEnumValue: Emojiset.unknown)
   Emojiset emojiset;
   bool presenceEnabled;
 
@@ -264,6 +344,7 @@ class UserSettings {
 
   UserSettings({
     required this.twentyFourHourTime,
+    required this.starredMessageCounts,
     required this.displayEmojiReactionUsers,
     required this.emojiset,
     required this.presenceEnabled,
@@ -391,115 +472,4 @@ class UnreadHuddleSnapshot {
     _$UnreadHuddleSnapshotFromJson(json);
 
   Map<String, dynamic> toJson() => _$UnreadHuddleSnapshotToJson(this);
-}
-
-/// Metadata about how to interpret the various group-based permission settings.
-///
-/// This is the type that [InitialSnapshot.serverSupportedPermissionSettings]
-/// would have, according to the API as it exists as of 2025-08;
-/// but that API is documented as unstable and subject to change.
-///
-/// For a useful value of this type, see [SupportedPermissionSettings.fixture].
-///
-/// For docs, search for "d_perm" in: https://zulip.com/api/register-queue
-@JsonSerializable(fieldRename: FieldRename.snake)
-class SupportedPermissionSettings {
-  final Map<String, PermissionSettingsItem> realm;
-  final Map<String, PermissionSettingsItem> stream;
-  final Map<String, PermissionSettingsItem> group;
-
-  /// Metadata about how to interpret certain group-based permission settings,
-  /// including all those that this client uses, based on "current" servers.
-  ///
-  /// "Current" here means as of when this code was written, or last updated;
-  /// details in comments below.  Naturally it'd be better to have an API to
-  /// get this information from the actual server.
-  ///
-  /// Effectively we're counting on it being uncommon for the metadata for a
-  /// given permission to ever change from one server version to the next,
-  /// so that the values we take from one server version usually remain valid
-  /// for all past and future server versions that have the corresponding
-  /// permission at all.
-  ///
-  /// TODO(server): Stabilize [InitialSnapshot.serverSupportedPermissionSettings]
-  ///   or a similar API, and switch to using that.  See thread:
-  ///     https://chat.zulip.org/#narrow/channel/378-api-design/topic/server_supported_permission_settings/near/2247549
-  static SupportedPermissionSettings fixture = SupportedPermissionSettings(
-    realm: {}, // Please go ahead and fill this in when we come to need it.
-    group: {}, // Please go ahead and fill this in when we come to need it.
-    stream: {
-      // From the server's Stream.stream_permission_group_settings,
-      // in zerver/models/streams.py.  Current as of f9dc13014, 2025-08.
-      "can_add_subscribers_group": PermissionSettingsItem(
-          // allow_nobody_group=True,
-          allowEveryoneGroup: false,
-          // default_group_name=SystemGroups.NOBODY,
-      ),
-      "can_administer_channel_group": PermissionSettingsItem(
-          // allow_nobody_group=True,
-          allowEveryoneGroup: false,
-          // default_group_name="stream_creator_or_nobody",
-      ),
-      "can_delete_any_message_group": PermissionSettingsItem(
-          // allow_nobody_group=True,
-          allowEveryoneGroup: true,
-          // default_group_name=SystemGroups.NOBODY,
-      ),
-      "can_delete_own_message_group": PermissionSettingsItem(
-          // allow_nobody_group=True,
-          allowEveryoneGroup: true,
-          // default_group_name=SystemGroups.NOBODY,
-      ),
-      "can_move_messages_out_of_channel_group": PermissionSettingsItem(
-          // allow_nobody_group=True,
-          allowEveryoneGroup: true,
-          // default_group_name=SystemGroups.NOBODY,
-      ),
-      "can_move_messages_within_channel_group": PermissionSettingsItem(
-          // allow_nobody_group=True,
-          allowEveryoneGroup: true,
-          // default_group_name=SystemGroups.NOBODY,
-      ),
-      "can_remove_subscribers_group": PermissionSettingsItem(
-          // allow_nobody_group=True,
-          allowEveryoneGroup: true,
-          // default_group_name=SystemGroups.ADMINISTRATORS,
-      ),
-      "can_send_message_group": PermissionSettingsItem(
-          // allow_nobody_group=True,
-          allowEveryoneGroup: true,
-          // default_group_name=SystemGroups.EVERYONE,
-      ),
-      "can_subscribe_group": PermissionSettingsItem(
-          // allow_nobody_group=True,
-          allowEveryoneGroup: false,
-          // default_group_name=SystemGroups.NOBODY,
-      ),
-      "can_resolve_topics_group": PermissionSettingsItem(
-          // allow_nobody_group=True,
-          allowEveryoneGroup: true,
-          // default_group_name=SystemGroups.NOBODY,
-      ),
-    },
-  );
-
-  SupportedPermissionSettings({required this.realm, required this.stream, required this.group});
-
-  factory SupportedPermissionSettings.fromJson(Map<String, dynamic> json) =>
-    _$SupportedPermissionSettingsFromJson(json);
-
-  Map<String, dynamic> toJson() => _$SupportedPermissionSettingsToJson(this);
-}
-
-@JsonSerializable(fieldRename: FieldRename.snake)
-class PermissionSettingsItem {
-  final bool allowEveryoneGroup;
-  // also other fields not yet used
-
-  PermissionSettingsItem({required this.allowEveryoneGroup});
-
-  factory PermissionSettingsItem.fromJson(Map<String, dynamic> json) =>
-    _$PermissionSettingsItemFromJson(json);
-
-  Map<String, dynamic> toJson() => _$PermissionSettingsItemToJson(this);
 }

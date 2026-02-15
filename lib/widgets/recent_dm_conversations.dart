@@ -11,7 +11,7 @@ import 'page.dart';
 import 'store.dart';
 import 'text.dart';
 import 'theme.dart';
-import 'unread_count_badge.dart';
+import 'counter_badge.dart';
 import 'user.dart';
 
 typedef OnDmSelectCallback = void Function(DmNarrow narrow);
@@ -107,7 +107,8 @@ class _RecentDmConversationsPageBodyState extends State<RecentDmConversationsPag
       children: [
         if (sorted.isEmpty)
           PageBodyEmptyContentPlaceholder(
-            message: zulipLocalizations.recentDmConversationsEmptyPlaceholder)
+            header: zulipLocalizations.recentDmConversationsEmptyPlaceholderHeader,
+            message: zulipLocalizations.recentDmConversationsEmptyPlaceholderMessage)
         else
           SafeArea(
             // Don't pad the bottom here; we want the list content to do that.
@@ -233,7 +234,9 @@ class RecentDmConversationsItem extends StatelessWidget {
             const SizedBox(width: 12),
             unreadCount > 0
               ? Padding(padding: const EdgeInsetsDirectional.only(end: 16),
-                child: UnreadCountBadge(backgroundColor: null,
+                child: CounterBadge(
+                  kind: CounterBadgeKind.unread,
+                  channelIdForBackground: null,
                   count: unreadCount))
             : const SizedBox(),
           ]))));
